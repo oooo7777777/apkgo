@@ -65,6 +65,7 @@ func audit(ctx context.Context, cfg map[string]string, q store.AuditQuery) store
 			AuditResult  int    `json:"auditResult"`
 			AuditMessage string `json:"auditMessage"`
 			VersionName  string `json:"versionName"`
+			VersionCode  int64  `json:"versionCode"`
 		} `json:"data"`
 	}
 	httpResp, err := s.client.R().
@@ -85,6 +86,7 @@ func audit(ctx context.Context, cfg map[string]string, q store.AuditQuery) store
 		return res
 	}
 	res.State, res.Detail = mapHonorAudit(resp.Data.AuditResult, resp.Data.AuditMessage)
+	res.VersionCode = resp.Data.VersionCode
 	return res
 }
 
@@ -239,7 +241,7 @@ func (s *Store) upload(ctx context.Context, req *store.UploadRequest) error {
 	}
 
 	rep.Phase("submitting")
-	return s.submitAudit(appID, req.ReleaseTime)
+	return s.submitAudit(appID, req)
 }
 
 // ---- auth ----
@@ -627,17 +629,19 @@ func (s *Store) updateLanguageInfo(appID string, existing *languageInfo, release
 
 // ---- submit ----
 
-func (s *Store) submitAudit(appID string, releaseTime *time.Time) error {
-	var resp honorResp
+func (s *Store) submitAudit(appID string, req *store.UploadRequest) error {
+	releaseType, releaseTime, err := honorReleaseParams(req)
+	if err != nil {
+		return err
+	}
+
 	body := map[string]any{
-		"releaseType": 1, // 1 = 全网发布
+		"releaseType": releaseType,
 	}
-	if releaseTime != nil {
-		// Scheduled release (定时发布): releaseType 2 = 指定时间发布, with
-		// releaseTime in UTC format with offset (e.g. 2026-06-20T10:00:00+0800).
-		body["releaseType"] = 2
-		body["releaseTime"] = releaseTime.Format("2006-01-02T15:04:05Z0700")
+	if releaseTime != "" {
+		body["releaseTime"] = releaseTime
 	}
+	var resp honorResp
 	httpResp, err := s.client.R().
 		SetQueryParam("appId", appID).
 		SetBody(body).
@@ -654,6 +658,33 @@ func (s *Store) submitAudit(appID string, releaseTime *time.Time) error {
 			fmt.Errorf("[%d] %s", resp.Code, resp.text()))
 	}
 	return nil
+}
+
+func honorReleaseParams(req *store.UploadRequest) (releaseType int, releaseTime string, err error) {
+	if req.ReleaseTime != nil {
+		return 2, req.ReleaseTime.Format("2006-01-02T15:04:05Z0700"), nil
+	}
+	switch strings.ToLower(strings.TrimSpace(req.PublishMode)) {
+	case "", "auto":
+		return 1, "", nil
+	case "manual":
+		return 0, "", fmt.Errorf("publish mode %q is not supported by honor: Honor only supports auto and scheduled release", req.PublishMode)
+	case "scheduled":
+		if strings.TrimSpace(req.PublishTime) == "" {
+			return 0, "", fmt.Errorf("honor scheduled release requires publish_time")
+		}
+		loc, locErr := time.LoadLocation("Asia/Shanghai")
+		if locErr != nil {
+			return 0, "", fmt.Errorf("load Asia/Shanghai location: %w", locErr)
+		}
+		t, parseErr := time.ParseInLocation("2006-01-02 15:04:05", req.PublishTime, loc)
+		if parseErr != nil {
+			return 0, "", fmt.Errorf("honor publish_time must match 2006-01-02 15:04:05: %w", parseErr)
+		}
+		return 2, t.Format("2006-01-02T15:04:05-0700"), nil
+	default:
+		return 0, "", fmt.Errorf("unsupported publish mode %q", req.PublishMode)
+	}
 }
 
 // classifyHonor maps known honor response codes to apkgo's

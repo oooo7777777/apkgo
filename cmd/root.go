@@ -16,11 +16,11 @@ import (
 )
 
 var (
-	flagConfig     string
-	flagCredsFrom  string
-	flagOutput     string
-	flagVerbose    bool
-	flagTimeout    time.Duration
+	flagConfig    string
+	flagCredsFrom string
+	flagOutput    string
+	flagVerbose   bool
+	flagTimeout   time.Duration
 )
 
 var rootCmd = &cobra.Command{
@@ -49,7 +49,7 @@ func init() {
 	rootCmd.Long = fmt.Sprintf("apkgo %s — A CLI tool for distributing APK packages to Huawei, Xiaomi, OPPO, vivo, Honor, and custom servers. Designed for AI agent integration.", Version)
 	rootCmd.SetVersionTemplate("apkgo {{.Version}}\n")
 
-	rootCmd.PersistentFlags().StringVarP(&flagConfig, "config", "c", "apkgo.yaml", "config file path")
+	rootCmd.PersistentFlags().StringVarP(&flagConfig, "config", "c", config.DefaultJSONKeysPath, "config file path")
 	rootCmd.PersistentFlags().StringVar(&flagCredsFrom, "creds-from", "", `read JSON config from a non-disk source: "stdin" or "fd:N" (overrides --config when set)`)
 	rootCmd.PersistentFlags().StringVarP(&flagOutput, "output", "o", "json", "output format: json or text")
 	rootCmd.PersistentFlags().BoolVarP(&flagVerbose, "verbose", "v", false, "verbose logging to stderr")
@@ -98,9 +98,10 @@ func discardLog() {
 
 // loadConfigForCmd returns the resolved Config for the current command,
 // reading from --creds-from when set (so credentials never touch disk
-// or env) and falling back to the YAML file referenced by --config
-// otherwise. Centralised so every command picks up the same flag
-// semantics without re-implementing them.
+// or env) and otherwise delegating to config.Load, which prefers
+// config/config.json when the default config path is used. Centralised so
+// every command picks up the same flag semantics without re-implementing
+// them.
 func loadConfigForCmd() (*config.Config, error) {
 	if flagCredsFrom != "" {
 		return config.LoadCreds(flagCredsFrom)

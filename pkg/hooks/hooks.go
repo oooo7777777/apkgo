@@ -15,7 +15,7 @@ import (
 // Payload types for hook stdin JSON.
 
 type BeforeAllPayload struct {
-	FilePath string   `json:"file_path"`
+	FilePath string    `json:"file_path"`
 	APK      *apk.Info `json:"apk"`
 	Stores   []string  `json:"stores"`
 }
@@ -24,6 +24,7 @@ type AfterAllPayload struct {
 	FilePath string                `json:"file_path"`
 	APK      *apk.Info             `json:"apk"`
 	Results  []*store.UploadResult `json:"results"`
+	Notes    string                `json:"notes,omitempty"`
 }
 
 type BeforeStorePayload struct {

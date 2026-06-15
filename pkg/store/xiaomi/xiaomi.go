@@ -174,10 +174,12 @@ func (s *Store) push(synchroType int, req *store.UploadRequest, iconPath string,
 		"packageName": req.PackageName,
 		"updateDesc":  req.ReleaseNotes,
 	}
-	if req.ReleaseTime != nil {
-		// Scheduled release (定时上线): onlineTime is a Unix millisecond
-		// timestamp (absolute instant, timezone-independent).
-		appInfo["onlineTime"] = req.ReleaseTime.UnixMilli()
+	onlineTime, err := xiaomiOnlineTime(req)
+	if err != nil {
+		return err
+	}
+	if onlineTime > 0 {
+		appInfo["onlineTime"] = onlineTime
 	}
 
 	files := map[string]string{
@@ -261,6 +263,33 @@ func (s *Store) push(synchroType int, req *store.UploadRequest, iconPath string,
 			fmt.Errorf("push failed: %s", resp.Message))
 	}
 	return nil
+}
+
+func xiaomiOnlineTime(req *store.UploadRequest) (int64, error) {
+	if req.ReleaseTime != nil {
+		return req.ReleaseTime.UnixMilli(), nil
+	}
+	switch strings.ToLower(strings.TrimSpace(req.PublishMode)) {
+	case "", "auto":
+		return 0, nil
+	case "manual":
+		return 0, fmt.Errorf("publish mode %q is not supported by xiaomi: Xiaomi only supports auto and scheduled release", req.PublishMode)
+	case "scheduled":
+		if strings.TrimSpace(req.PublishTime) == "" {
+			return 0, fmt.Errorf("xiaomi scheduled release requires publish_time")
+		}
+		loc, locErr := time.LoadLocation("Asia/Shanghai")
+		if locErr != nil {
+			return 0, fmt.Errorf("load Asia/Shanghai location: %w", locErr)
+		}
+		t, parseErr := time.ParseInLocation("2006-01-02 15:04:05", req.PublishTime, loc)
+		if parseErr != nil {
+			return 0, fmt.Errorf("xiaomi publish_time must match 2006-01-02 15:04:05: %w", parseErr)
+		}
+		return t.UnixMilli(), nil
+	default:
+		return 0, fmt.Errorf("unsupported publish mode %q", req.PublishMode)
+	}
 }
 
 // classifyXiaomi categorises known xiaomi result codes / message

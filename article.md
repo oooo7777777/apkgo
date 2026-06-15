@@ -39,10 +39,11 @@ apkgo upload -f app-release.apk --notes "修复了若干问题"
 curl -fsSL https://github.com/KevinGong2013/apkgo/releases/latest/download/apkgo_Linux_x86_64.tar.gz | tar xz -C /usr/local/bin apkgo
 
 # 生成配置（只选你需要的商店）
-apkgo init --store huawei,xiaomi,oppo
+mkdir -p config
+apkgo init --store huawei,xiaomi,oppo -c config/config.json
 
 # 填入各商店的 API 密钥
-vim apkgo.yaml
+vim config/config.json
 
 # 上传！
 apkgo upload -f app-release.apk --notes-file CHANGELOG.md

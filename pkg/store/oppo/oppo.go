@@ -59,6 +59,9 @@ func audit(ctx context.Context, cfg map[string]string, q store.AuditQuery) store
 		return res
 	}
 	res.State, res.Detail = mapOppoAudit(app.AuditStatusName, app.RefuseReason)
+	if v, err := strconv.ParseInt(strings.TrimSpace(app.VersionCode), 10, 64); err == nil {
+		res.VersionCodeRaw = v
+	}
 	return res
 }
 
@@ -401,12 +404,13 @@ func (s *Store) publish(req *store.UploadRequest, app *appData, apkInfos []apkIn
 	values.Set("privacy_source_url", app.PrivacySourceURL)
 	values.Set("icon_url", app.IconURL)
 	values.Set("pic_url", app.PicURL)
-	values.Set("online_type", "1")
-	if req.ReleaseTime != nil {
-		// Scheduled release (定时发布): online_type 2 = 定时发布, with
-		// sche_online_time as a Beijing-local datetime string.
-		values.Set("online_type", "2")
-		values.Set("sche_online_time", store.BeijingLocalTime(*req.ReleaseTime))
+	onlineType, scheTime, err := oppoPublishParams(req)
+	if err != nil {
+		return err
+	}
+	values.Set("online_type", onlineType)
+	if scheTime != "" {
+		values.Set("sche_online_time", scheTime)
 	}
 	values.Set("test_desc", "submitted by apkgo")
 	values.Set("copyright_url", app.CopyrightURL)
@@ -435,6 +439,28 @@ func (s *Store) publish(req *store.UploadRequest, app *appData, apkInfos []apkIn
 		return fmt.Errorf("[%d] %s", resp.Errno, parseError(httpResp.Body()))
 	}
 	return nil
+}
+
+func oppoPublishParams(req *store.UploadRequest) (onlineType, scheTime string, err error) {
+	if req.ReleaseTime != nil {
+		return "2", store.BeijingLocalTime(*req.ReleaseTime), nil
+	}
+	switch strings.ToLower(strings.TrimSpace(req.PublishMode)) {
+	case "", "auto":
+		return "1", "", nil
+	case "manual":
+		return "", "", fmt.Errorf("publish mode %q is not supported by oppo: OPPO only supports auto and scheduled release", req.PublishMode)
+	case "scheduled":
+		if strings.TrimSpace(req.PublishTime) == "" {
+			return "", "", fmt.Errorf("oppo scheduled release requires publish_time")
+		}
+		if _, parseErr := time.Parse("2006-01-02 15:04:05", req.PublishTime); parseErr != nil {
+			return "", "", fmt.Errorf("oppo publish_time must match 2006-01-02 15:04:05: %w", parseErr)
+		}
+		return "2", req.PublishTime, nil
+	default:
+		return "", "", fmt.Errorf("unsupported publish mode %q", req.PublishMode)
+	}
 }
 
 // oppoConsoleURL is the OPPO release console — by the time we reach
@@ -533,6 +559,7 @@ func (s *Store) sign(data url.Values) url.Values {
 
 type appData struct {
 	AppName           string `json:"app_name"`
+	VersionCode       string `json:"version_code"`
 	SecondCategoryID  string `json:"second_category_id"`
 	ThirdCategoryID   string `json:"third_category_id"`
 	Summary           string `json:"summary"`

@@ -34,10 +34,13 @@ type AuditQuery struct {
 // itself failed (auth / network / not-found); State is meaningful only
 // when Error is empty.
 type AuditResult struct {
-	Store  string     `json:"store"`
-	State  AuditState `json:"state,omitempty"`
-	Detail string     `json:"detail,omitempty"`
-	Error  string     `json:"error,omitempty"`
+	Store              string     `json:"store"`
+	State              AuditState `json:"state,omitempty"`
+	Detail             string     `json:"detail,omitempty"`
+	VersionCode        int64      `json:"versionCode,omitempty"`
+	VersionCodeRaw     int64      `json:"version_code,omitempty"`
+	OnShelfVersionCode int64      `json:"onShelfVersionCode,omitempty"`
+	Error              string     `json:"error,omitempty"`
 }
 
 // AuditFn looks up the current review status for one store from its raw

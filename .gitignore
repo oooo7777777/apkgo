@@ -6,6 +6,14 @@ dist/
 # Config with secrets
 apkgo.yaml
 secrets.json
+apkgo-web.yaml
+config/*
+!config/README.md
+!config/config.example.json
+config/.DS_Store
+
+# Local runtime data
+.apkgo/
 
 # APK files
 *.apk

@@ -25,7 +25,8 @@ var (
 	flagStore          string
 	flagNotes          string
 	flagNotesFile      string
-	flagReleaseTime    string
+	flagPublishMode    string
+	flagPublishTime    string
 	flagDryRun         bool
 	flagFetchHeaders   []string
 	flagProgressStream bool
@@ -37,7 +38,8 @@ func init() {
 	uploadCmd.Flags().StringVarP(&flagStore, "store", "s", "", "comma-separated store names (default: all configured)")
 	uploadCmd.Flags().StringVarP(&flagNotes, "notes", "n", "", "release notes (text)")
 	uploadCmd.Flags().StringVar(&flagNotesFile, "notes-file", "", "read release notes from file (overrides --notes)")
-	uploadCmd.Flags().StringVar(&flagReleaseTime, "release-time", "", "schedule a timed release (定时发布) at an RFC3339 time, e.g. 2026-06-20T10:00:00+08:00 (supported: huawei,honor,xiaomi,oppo,vivo,samsung,tencent; others release immediately)")
+	uploadCmd.Flags().StringVar(&flagPublishMode, "publish-mode", "auto", "publish mode: auto, scheduled")
+	uploadCmd.Flags().StringVar(&flagPublishTime, "publish-time", "", "publish time for scheduled mode (format depends on store; OPPO uses 2006-01-02 15:04:05)")
 	uploadCmd.Flags().BoolVar(&flagDryRun, "dry-run", false, "validate config and APK without uploading")
 	uploadCmd.Flags().StringArrayVar(&flagFetchHeaders, "fetch-header", nil, `extra HTTP header for URL fetches (repeatable; "Name: value")`)
 	uploadCmd.Flags().BoolVar(&flagProgressStream, "progress-stream", false, "emit NDJSON progress events on stdout (one JSON object per line) for parent-process consumption")
@@ -77,12 +79,19 @@ var uploadCmd = &cobra.Command{
 		if err != nil {
 			return err
 		}
-
+		publishMode, publishTime, err := validatePublishFlags(flagPublishMode, flagPublishTime)
+		if err != nil {
+			return err
+		}
 		var releaseTime time.Time
-		if flagReleaseTime != "" {
-			releaseTime, err = time.Parse(time.RFC3339, flagReleaseTime)
+		if publishTime != "" {
+			loc, locErr := time.LoadLocation("Asia/Shanghai")
+			if locErr != nil {
+				return fmt.Errorf("load Asia/Shanghai location: %w", locErr)
+			}
+			releaseTime, err = time.ParseInLocation("2006-01-02 15:04:05", publishTime, loc)
 			if err != nil {
-				return fmt.Errorf("invalid --release-time %q (want RFC3339 with timezone, e.g. 2026-06-20T10:00:00+08:00): %w", flagReleaseTime, err)
+				return fmt.Errorf("invalid --publish-time %q: %w", publishTime, err)
 			}
 		}
 
@@ -108,6 +117,8 @@ var uploadCmd = &cobra.Command{
 			Notes:        flagNotes,
 			NotesFile:    flagNotesFile,
 			ReleaseTime:  releaseTime,
+			PublishMode:  publishMode,
+			PublishTime:  publishTime,
 			Config:       cfg,
 			FetchHeaders: fetchHeaders,
 			Progress:     pm,
@@ -186,5 +197,28 @@ func pickProgressManager() (uploader.ProgressManager, *uploader.NDJSONManager) {
 		return uploader.NewManager(p), nil
 	default:
 		return uploader.NopManager, nil
+	}
+}
+
+func validatePublishFlags(mode, at string) (string, string, error) {
+	mode = strings.ToLower(strings.TrimSpace(mode))
+	at = strings.TrimSpace(at)
+
+	switch mode {
+	case "", "auto":
+		if at != "" {
+			return "", "", fmt.Errorf("--publish-time requires --publish-mode scheduled")
+		}
+		return "auto", "", nil
+	case "scheduled":
+		if at == "" {
+			return "", "", fmt.Errorf("--publish-time is required when --publish-mode=scheduled")
+		}
+		if _, err := time.Parse("2006-01-02 15:04:05", at); err != nil {
+			return "", "", fmt.Errorf("--publish-time must match 2006-01-02 15:04:05: %w", err)
+		}
+		return "scheduled", at, nil
+	default:
+		return "", "", fmt.Errorf("invalid --publish-mode %q (want auto, scheduled)", mode)
 	}
 }

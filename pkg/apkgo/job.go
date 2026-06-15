@@ -3,7 +3,7 @@
 // External callers (cloud workers, custom tooling, CI helpers) drive a
 // publish workflow by constructing a Job and calling Run:
 //
-//	cfg, _ := config.Load("apkgo.yaml") // or build programmatically
+//	cfg, _ := config.Load("config/config.json") // or build programmatically
 //	result, err := apkgo.Run(ctx, apkgo.Job{
 //	    APKFile: "https://artifacts.example.com/v1.2.0.apk",
 //	    Stores:  []string{"huawei", "tencent"},
@@ -62,6 +62,14 @@ type Job struct {
 	// NotesFile, when set, takes precedence over Notes — its contents
 	// (trimmed) are used instead.
 	NotesFile string
+
+	// PublishMode controls how stores should publish after approval.
+	// Supported values are "auto" and "scheduled".
+	PublishMode string
+
+	// PublishTime is the requested go-live time for scheduled releases.
+	// Individual stores may require a store-specific format/timezone.
+	PublishTime string
 
 	// ReleaseTime, when non-zero, schedules a timed release (定时发布) at
 	// that instant on stores that support it (huawei, honor, xiaomi,
@@ -293,18 +301,24 @@ func Run(ctx context.Context, job Job) (*Result, error) {
 		ReleaseTime:  releaseTime,
 		SourceURL:    sourceURL,
 		Source64URL:  source64URL,
+		PublishMode:  job.PublishMode,
+		PublishTime:  job.PublishTime,
 	}
 
 	hookEnv := map[string]string{
 		"APKGO_PACKAGE": info.PackageName,
 		"APKGO_VERSION": info.VersionName,
 	}
+	log := ctxlog.FromContext(runCtx)
 
 	if job.Config.Hooks.Before != "" {
+		log.Info("running global before hook")
 		payload := hooks.BeforeAllPayload{FilePath: apkPath, APK: info, Stores: storeNames}
 		if err := hooks.RunHook(runCtx, job.Config.Hooks.Before, payload, hookEnv); err != nil {
+			log.Error("global before hook failed", "error", err)
 			return nil, fmt.Errorf("global before hook: %w", err)
 		}
+		log.Info("global before hook completed")
 	}
 
 	u := &uploader.Uploader{Stores: entries, Progress: pm, Events: job.Events}
@@ -315,8 +329,13 @@ func Run(ctx context.Context, job Job) (*Result, error) {
 	// already completed by the time this fires. The CLI logs a warning;
 	// library callers can introspect job.Config.Hooks.After themselves.
 	if job.Config.Hooks.After != "" {
-		payload := hooks.AfterAllPayload{FilePath: apkPath, APK: info, Results: results}
-		_ = hooks.RunHook(runCtx, job.Config.Hooks.After, payload, hookEnv)
+		log.Info("running global after hook")
+		payload := hooks.AfterAllPayload{FilePath: apkPath, APK: info, Results: results, Notes: notes}
+		if err := hooks.RunHook(runCtx, job.Config.Hooks.After, payload, hookEnv); err != nil {
+			log.Error("global after hook failed", "error", err)
+		} else {
+			log.Info("global after hook completed")
+		}
 	}
 
 	pm.Done(info, results)

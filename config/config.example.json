@@ -1,0 +1,61 @@
+{
+  "hooks": {
+    "after": "go run . notify feishu --webhook 'https://open.feishu.cn/open-apis/bot/v2/hook/your-webhook'"
+  },
+  "ui": {
+    "default_audit_package": "com.example.app",
+    "manual_urls": {
+      "huawei": "https://developer.huawei.com/consumer/cn/",
+      "tencent": "https://open.tencent.com/",
+      "oppo": "https://open.oppomobile.com/",
+      "honor": "https://developer.honor.com/cn/",
+      "vivo": "https://developer.vivo.com.cn/",
+      "xiaomi": "https://dev.mi.com/xiaomihyperos",
+      "pgyer": "https://www.pgyer.com/"
+    }
+  },
+  "pgyer": {
+    "api_key": ""
+  },
+  "fir": {
+    "api_token": ""
+  },
+  "tencent": {
+    "user_id": "",
+    "app_id": "",
+    "access_secret": ""
+  },
+  "huawei": {
+    "service_account_file": "./config/huawei.json"
+  },
+  "vivo": {
+    "access_key": "",
+    "access_secret": ""
+  },
+  "honor": {
+    "client_id": "",
+    "client_secret": ""
+  },
+  "oppo": {
+    "client_id": "",
+    "client_secret": ""
+  },
+  "xiaomi": {
+    "email": "",
+    "private_key": "",
+    "cert_file": "./config/xiaomi.cer"
+  },
+  "googleplay": {
+    "json_key_file": "",
+    "package_name": "",
+    "track": ""
+  },
+  "samsung": {
+    "service_account_id": "",
+    "private_key": "",
+    "content_id": ""
+  },
+  "script": {
+    "command": ""
+  }
+}

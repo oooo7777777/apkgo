@@ -63,6 +63,9 @@ func audit(ctx context.Context, cfg map[string]string, q store.AuditQuery) store
 		return res
 	}
 	res.State, res.Detail = mapVivoAuditState(int(app.Status))
+	if v, err := strconv.ParseInt(strings.TrimSpace(app.VersionCode), 10, 64); err == nil {
+		res.VersionCode = v
+	}
 	return res
 }
 
@@ -121,18 +124,20 @@ func (s *Store) Upload(ctx context.Context, req *store.UploadRequest) *store.Upl
 func (s *Store) upload(ctx context.Context, req *store.UploadRequest) error {
 	rep := progress.Safe(req.Progress)
 
+	onlineType, scheTime, err := vivoPublishParams(req)
+	if err != nil {
+		return err
+	}
+
 	updateReq := map[string]string{
 		"packageName":      req.PackageName,
 		"versionCode":      strconv.Itoa(int(req.VersionCode)),
-		"onlineType":       "1",
+		"onlineType":       onlineType,
 		"updateDesc":       req.ReleaseNotes,
 		"compatibleDevice": "2",
 	}
-	if req.ReleaseTime != nil {
-		// Scheduled release (定时上架): onlineType 2 = 定时上架, with
-		// scheOnlineTime as a Beijing-local datetime string.
-		updateReq["onlineType"] = "2"
-		updateReq["scheOnlineTime"] = store.BeijingLocalTime(*req.ReleaseTime)
+	if scheTime != "" {
+		updateReq["scheOnlineTime"] = scheTime
 	}
 
 	// URL pass-through (download mode): when -f (and --file64 for split)
@@ -288,6 +293,28 @@ func (s *Store) queryTaskStatus(packageName string) (status int, reason string, 
 			fmt.Errorf("[%s] %s", resp.errorCode(), resp.text()))
 	}
 	return resp.Data.Status, resp.Data.ErrorReason, nil
+}
+
+func vivoPublishParams(req *store.UploadRequest) (onlineType, scheTime string, err error) {
+	if req.ReleaseTime != nil {
+		return "2", store.BeijingLocalTime(*req.ReleaseTime), nil
+	}
+	switch strings.ToLower(strings.TrimSpace(req.PublishMode)) {
+	case "", "auto":
+		return "1", "", nil
+	case "manual":
+		return "", "", fmt.Errorf("publish mode %q is not supported by vivo: vivo only supports auto and scheduled release", req.PublishMode)
+	case "scheduled":
+		if strings.TrimSpace(req.PublishTime) == "" {
+			return "", "", fmt.Errorf("vivo scheduled release requires publish_time")
+		}
+		if _, parseErr := time.Parse("2006-01-02 15:04:05", req.PublishTime); parseErr != nil {
+			return "", "", fmt.Errorf("vivo publish_time must match 2006-01-02 15:04:05: %w", parseErr)
+		}
+		return "2", req.PublishTime, nil
+	default:
+		return "", "", fmt.Errorf("unsupported publish mode %q", req.PublishMode)
+	}
 }
 
 // sumFileSizes totals the byte sizes of the given paths. Empty paths are ignored.

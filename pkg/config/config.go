@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -14,17 +15,26 @@ import (
 	"github.com/KevinGong2013/apkgo/v3/pkg/store"
 )
 
+const DefaultJSONKeysPath = "config/config.json"
+
 // HookConfig holds before/after hook commands.
 type HookConfig struct {
 	Before string `yaml:"before,omitempty" json:"before,omitempty"`
 	After  string `yaml:"after,omitempty" json:"after,omitempty"`
 }
 
-// Config is the top-level YAML configuration.
+// Config is the top-level runtime configuration.
 type Config struct {
 	Hooks       HookConfig                   `yaml:"hooks,omitempty" json:"hooks,omitempty"`
 	Stores      map[string]map[string]string `yaml:"stores" json:"stores"`
 	UpdateCheck string                       `yaml:"update_check,omitempty" json:"update_check,omitempty"` // e.g. "30d", "7d", "0" to disable
+}
+
+var reservedJSONConfigKeys = map[string]struct{}{
+	"hooks":        {},
+	"ui":           {},
+	"update_check": {},
+	"stores":       {},
 }
 
 // StoreWithHooks pairs a store instance with its per-store hook
@@ -37,7 +47,7 @@ type StoreWithHooks struct {
 	Timeout time.Duration
 }
 
-// Load reads a YAML config file and merges environment variable overrides.
+// Load reads config from disk and merges environment variable overrides.
 //
 // Environment variables follow the pattern: APKGO_<STORE>_<KEY>
 // For example: APKGO_HUAWEI_CLIENT_ID, APKGO_XIAOMI_EMAIL
@@ -45,6 +55,14 @@ type StoreWithHooks struct {
 // If the config file does not exist but environment variables define at least
 // one store, the config is built entirely from env vars.
 func Load(path string) (*Config, error) {
+	if shouldPreferJSONKeys(path) {
+		if cfg, err := loadJSONKeys(DefaultJSONKeysPath); err == nil {
+			return cfg, nil
+		} else if !os.IsNotExist(err) {
+			return nil, err
+		}
+	}
+
 	cfg := &Config{Stores: map[string]map[string]string{}}
 
 	data, err := os.ReadFile(path)
@@ -72,6 +90,56 @@ func Load(path string) (*Config, error) {
 	return cfg, nil
 }
 
+func shouldPreferJSONKeys(path string) bool {
+	clean := filepath.Clean(path)
+	return clean == DefaultJSONKeysPath || clean == "apkgo.yaml" || clean == "." || clean == ""
+}
+
+func loadJSONKeys(path string) (*Config, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, err
+	}
+	var raw map[string]json.RawMessage
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return nil, fmt.Errorf("parse %s: %w", path, err)
+	}
+	var hooks HookConfig
+	if v, ok := raw["hooks"]; ok {
+		if err := json.Unmarshal(v, &hooks); err != nil {
+			return nil, fmt.Errorf("parse hooks in %s: %w", path, err)
+		}
+		delete(raw, "hooks")
+	}
+	stores := map[string]map[string]string{}
+	for name, blob := range raw {
+		if _, skip := reservedJSONConfigKeys[name]; skip {
+			continue
+		}
+		var values map[string]string
+		if err := json.Unmarshal(blob, &values); err != nil {
+			return nil, fmt.Errorf("parse store %q in %s: %w", name, path, err)
+		}
+		stores[name] = values
+	}
+	filtered := map[string]map[string]string{}
+	for name, values := range stores {
+		clean := map[string]string{}
+		for k, v := range values {
+			if strings.TrimSpace(v) != "" {
+				clean[k] = v
+			}
+		}
+		if len(clean) > 0 {
+			filtered[name] = clean
+		}
+	}
+	if len(filtered) == 0 {
+		return nil, fmt.Errorf("no stores configured in %s", path)
+	}
+	return &Config{Hooks: hooks, Stores: filtered}, nil
+}
+
 // LoadFromJSON parses a JSON-encoded config blob from r. Used by the
 // CLI's --creds-from flag (stdin / fd:N) to accept credentials without
 // landing them on disk or in the process environment, where they would
@@ -85,7 +153,7 @@ func Load(path string) (*Config, error) {
 // hygiene should treat *Config as sensitive for its full lifetime.
 //
 // Env-var overrides (APKGO_*_*) are NOT merged into the JSON path —
-// the JSON is treated as authoritative. Mixing yaml/file + env + JSON
+// the JSON is treated as authoritative. Mixing file + env + JSON
 // in one call would be confusing; pick one source per invocation.
 func LoadFromJSON(r io.Reader) (*Config, error) {
 	data, err := io.ReadAll(r)
@@ -126,7 +194,7 @@ func LoadOrEmpty(path string) *Config {
 	return cfg
 }
 
-// Save writes the config to a YAML file.
+// Save writes the config to a file in the legacy YAML format.
 func (c *Config) Save(path string) error {
 	data, err := yaml.Marshal(c)
 	if err != nil {

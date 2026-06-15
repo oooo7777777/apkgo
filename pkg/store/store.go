@@ -22,6 +22,12 @@ type UploadRequest struct {
 	VersionCode  int32
 	VersionName  string
 	ReleaseNotes string
+	// PublishMode controls how a store should go live after approval.
+	// Supported values are "auto" and "scheduled".
+	PublishMode string
+	// PublishTime is the requested go-live time for scheduled releases.
+	// Its required format depends on the target store.
+	PublishTime string
 
 	// ReleaseTime, when non-nil, requests a scheduled (定时/timed) release
 	// at that instant instead of the default "go live immediately after

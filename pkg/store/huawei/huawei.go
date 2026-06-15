@@ -57,8 +57,12 @@ func audit(ctx context.Context, cfg map[string]string, q store.AuditQuery) store
 		}
 	}
 	var resp struct {
-		Ret          retInfo `json:"ret"`
-		ReleaseState int     `json:"releaseState"`
+		Ret     retInfo `json:"ret"`
+		AppInfo struct {
+			ReleaseState       int        `json:"releaseState"`
+			VersionCode        lenientInt `json:"versionCode"`
+			OnShelfVersionCode lenientInt `json:"onShelfVersionCode"`
+		} `json:"appInfo"`
 	}
 	httpResp, err := s.client.R().
 		SetContext(ctx).
@@ -77,7 +81,9 @@ func audit(ctx context.Context, cfg map[string]string, q store.AuditQuery) store
 		res.Error = fmt.Sprintf("[%d] %s", resp.Ret.Code, resp.Ret.text())
 		return res
 	}
-	res.State, res.Detail = mapHuaweiReleaseState(resp.ReleaseState)
+	res.State, res.Detail = mapHuaweiReleaseState(resp.AppInfo.ReleaseState)
+	res.VersionCode = int64(resp.AppInfo.VersionCode)
+	res.OnShelfVersionCode = int64(resp.AppInfo.OnShelfVersionCode)
 	return res
 }
 
@@ -100,6 +106,22 @@ func mapHuaweiReleaseState(state int) (store.AuditState, string) {
 	default:
 		return store.AuditUnknown, fmt.Sprintf("releaseState=%d", state)
 	}
+}
+
+// lenientInt unmarshals either a JSON number or a quoted number without
+// failing the surrounding response decode.
+type lenientInt int64
+
+func (n *lenientInt) UnmarshalJSON(b []byte) error {
+	s := strings.Trim(string(b), `"`)
+	if s == "" || s == "null" {
+		return nil
+	}
+	var v int64
+	if _, err := fmt.Sscan(s, &v); err == nil {
+		*n = lenientInt(v)
+	}
+	return nil
 }
 
 // authMode reflects which credential type is in effect; used by diagnostics.
@@ -214,7 +236,7 @@ func (s *Store) upload(ctx context.Context, req *store.UploadRequest) error {
 
 	// Poll for compilation readiness then submit
 	rep.Phase("submitting")
-	if err := s.pollAndSubmit(ctx, appID, req.ReleaseTime); err != nil {
+	if err := s.pollAndSubmit(ctx, appID, req); err != nil {
 		return err
 	}
 	return nil
@@ -470,13 +492,13 @@ const hwConsoleURL = "https://developer.huawei.com/consumer/cn/console"
 // also come back as 204144660, so we must inspect the message and only
 // retry the "still parsing" subset; otherwise we'd burn 5 minutes hiding
 // an error the operator can fix immediately.
-func (s *Store) pollAndSubmit(ctx context.Context, appID string, releaseTime *time.Time) error {
+func (s *Store) pollAndSubmit(ctx context.Context, appID string, req *store.UploadRequest) error {
 	wrap := func(format string, args ...any) error {
 		return fmt.Errorf(format+" (APK 已上传成功，请在 AGC 后台完成审核：%s)", append(args, hwConsoleURL)...)
 	}
 
 	// Immediate attempt so fast-parsing APKs don't wait 30s for nothing.
-	ret, err := s.submitApp(appID, releaseTime)
+	ret, err := s.submitApp(appID, req)
 	if err != nil {
 		return wrap("submit: %v", err)
 	}
@@ -501,7 +523,7 @@ func (s *Store) pollAndSubmit(ctx context.Context, appID string, releaseTime *ti
 		case <-ticker.C:
 		}
 
-		ret, err := s.submitApp(appID, releaseTime)
+		ret, err := s.submitApp(appID, req)
 		if err != nil {
 			return wrap("submit: %v", err)
 		}
@@ -541,23 +563,20 @@ func isParsingInProgress(ret retInfo) bool {
 // HTTP-level failures (transport error, non-2xx with no parseable ret)
 // are surfaced as the second return value rather than being silently
 // converted into a zero-valued ret, which would look like success.
-func (s *Store) submitApp(appID string, releaseTime *time.Time) (retInfo, error) {
+func (s *Store) submitApp(appID string, req *store.UploadRequest) (retInfo, error) {
+	body, err := huaweiSubmitBody(req)
+	if err != nil {
+		return retInfo{}, err
+	}
 	var resp struct {
 		Ret retInfo `json:"ret"`
 	}
-	query := map[string]string{
-		"appId":       appID,
-		"releaseType": "1",
-	}
-	if releaseTime != nil {
-		// Scheduled release (定时发布): Huawei's releaseTime query param,
-		// UTC format with offset (e.g. 2026-06-20T10:00:00+0800). When
-		// omitted the app goes live immediately after the review passes.
-		query["releaseTime"] = releaseTime.Format("2006-01-02T15:04:05Z0700")
-	}
 	httpResp, err := s.client.R().
-		SetQueryParams(query).
-		SetBody(map[string]any{}).
+		SetQueryParams(map[string]string{
+			"appId":       appID,
+			"releaseType": "1",
+		}).
+		SetBody(body).
 		SetResult(&resp).
 		Post("/api/publish/v2/app-submit")
 	if err != nil {
@@ -567,6 +586,37 @@ func (s *Store) submitApp(appID string, releaseTime *time.Time) (retInfo, error)
 		return retInfo{}, fmt.Errorf("http %d: %s", httpResp.StatusCode(), strings.TrimSpace(string(httpResp.Body())))
 	}
 	return resp.Ret, nil
+}
+
+func huaweiSubmitBody(req *store.UploadRequest) (map[string]any, error) {
+	if req.ReleaseTime != nil {
+		return map[string]any{
+			"releaseTime": req.ReleaseTime.Format("2006-01-02T15:04:05Z0700"),
+		}, nil
+	}
+	switch strings.ToLower(strings.TrimSpace(req.PublishMode)) {
+	case "", "auto":
+		return map[string]any{}, nil
+	case "manual":
+		return nil, fmt.Errorf("publish mode %q is not supported by huawei: Huawei only supports auto and scheduled release", req.PublishMode)
+	case "scheduled":
+		if strings.TrimSpace(req.PublishTime) == "" {
+			return nil, fmt.Errorf("huawei scheduled release requires publish_time")
+		}
+		loc, locErr := time.LoadLocation("Asia/Shanghai")
+		if locErr != nil {
+			return nil, fmt.Errorf("load Asia/Shanghai location: %w", locErr)
+		}
+		t, parseErr := time.ParseInLocation("2006-01-02 15:04:05", req.PublishTime, loc)
+		if parseErr != nil {
+			return nil, fmt.Errorf("huawei publish_time must match 2006-01-02 15:04:05: %w", parseErr)
+		}
+		return map[string]any{
+			"releaseTime": t.Format("2006-01-02T15:04:05-0700"),
+		}, nil
+	default:
+		return nil, fmt.Errorf("unsupported publish mode %q", req.PublishMode)
+	}
 }
 
 // getUploadURL fetches a per-upload destination URL + auth code from Huawei.

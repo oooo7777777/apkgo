@@ -302,14 +302,13 @@ func (s *Store) updateApp(pkg, appID string, req *store.UploadRequest, apkSerial
 	params := url.Values{}
 	params.Set("pkg_name", pkg)
 	params.Set("app_id", appID)
-	params.Set("deploy_type", "1") // publish immediately after approval
-	if req.ReleaseTime != nil {
-		// Scheduled release (定时发布): deploy_type 2 = 定时发布, with
-		// deploy_time as a Unix *second* timestamp (absolute instant;
-		// Tencent documents it as Beijing time but epoch seconds are
-		// timezone-independent).
-		params.Set("deploy_type", "2")
-		params.Set("deploy_time", strconv.FormatInt(req.ReleaseTime.Unix(), 10))
+	deployType, deployTime, err := tencentDeployParams(req)
+	if err != nil {
+		return err
+	}
+	params.Set("deploy_type", deployType)
+	if deployTime != "" {
+		params.Set("deploy_time", deployTime)
 	}
 
 	// APK files
@@ -351,6 +350,33 @@ func (s *Store) updateApp(pkg, appID string, req *store.UploadRequest, apkSerial
 	return nil
 }
 
+func tencentDeployParams(req *store.UploadRequest) (deployType, deployTime string, err error) {
+	if req.ReleaseTime != nil {
+		return "2", strconv.FormatInt(req.ReleaseTime.Unix(), 10), nil
+	}
+	switch strings.ToLower(strings.TrimSpace(req.PublishMode)) {
+	case "", "auto":
+		return "1", "", nil
+	case "manual":
+		return "", "", fmt.Errorf("publish mode %q is not supported by tencent: Tencent only supports auto and scheduled release", req.PublishMode)
+	case "scheduled":
+		if strings.TrimSpace(req.PublishTime) == "" {
+			return "", "", fmt.Errorf("tencent scheduled release requires publish_time")
+		}
+		loc, locErr := time.LoadLocation("Asia/Shanghai")
+		if locErr != nil {
+			return "", "", fmt.Errorf("load Asia/Shanghai location: %w", locErr)
+		}
+		t, parseErr := time.ParseInLocation("2006-01-02 15:04:05", req.PublishTime, loc)
+		if parseErr != nil {
+			return "", "", fmt.Errorf("tencent publish_time must match 2006-01-02 15:04:05: %w", parseErr)
+		}
+		return "2", strconv.FormatInt(t.Unix(), 10), nil
+	default:
+		return "", "", fmt.Errorf("unsupported publish mode %q", req.PublishMode)
+	}
+}
+
 // isAPK64BitOnly reports whether the APK at path contains only 64-bit
 // native libs. Failures are swallowed and reported as false — the APK
 // already uploaded successfully, so the worst case is that we fall back
@@ -389,8 +415,14 @@ func audit(_ context.Context, cfg map[string]string, q store.AuditQuery) store.A
 		res.Error = err.Error()
 		return res
 	}
+	versionCode, err := s.queryVersionCode(pkg, appID)
+	if err != nil {
+		res.Error = err.Error()
+		return res
+	}
 	res.State = state
 	res.Detail = detail
+	res.VersionCode = versionCode
 	return res
 }
 
@@ -424,6 +456,27 @@ func (s *Store) queryAuditStatus(pkg, appID string) (store.AuditState, string, e
 	default:
 		return store.AuditUnknown, fmt.Sprintf("audit_status=%d", resp.AuditStatus), nil
 	}
+}
+
+func (s *Store) queryVersionCode(pkg, appID string) (int64, error) {
+	params := url.Values{}
+	params.Set("pkg_name", pkg)
+	params.Set("app_id", appID)
+
+	var resp struct {
+		tencentResp
+		AppName     string `json:"app_name"`
+		Category    int    `json:"category"`
+		Feature     string `json:"feature"`
+		VersionCode int64  `json:"version_code"`
+	}
+	if err := s.post("/query_app_detail", params, &resp); err != nil {
+		return 0, err
+	}
+	if resp.Ret != 0 {
+		return 0, fmt.Errorf("[%d] %s", resp.Ret, resp.text())
+	}
+	return resp.VersionCode, nil
 }
 
 // post makes a signed POST request to the Tencent API.

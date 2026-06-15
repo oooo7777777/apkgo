@@ -11,6 +11,7 @@ import (
 
 	"github.com/go-resty/resty/v2"
 
+	"github.com/KevinGong2013/apkgo/v3/pkg/ctxlog"
 	"github.com/KevinGong2013/apkgo/v3/pkg/httpx"
 	"github.com/KevinGong2013/apkgo/v3/pkg/progress"
 	"github.com/KevinGong2013/apkgo/v3/pkg/store"
@@ -64,6 +65,7 @@ func (s *Store) Upload(ctx context.Context, req *store.UploadRequest) *store.Upl
 
 func (s *Store) upload(ctx context.Context, req *store.UploadRequest) error {
 	rep := progress.Safe(req.Progress)
+	log := ctxlog.FromContext(ctx)
 
 	// 1. Get COS upload token
 	rep.Phase("auth")
@@ -124,6 +126,7 @@ func (s *Store) upload(ctx context.Context, req *store.UploadRequest) error {
 
 	// 3. Poll build info until published
 	rep.Phase("processing")
+	log.Info("pgyer processing started", "build_key", tokenResp.Data.Key)
 	ticker := time.NewTicker(10 * time.Second)
 	defer ticker.Stop()
 
@@ -161,10 +164,13 @@ func (s *Store) upload(ctx context.Context, req *store.UploadRequest) error {
 		switch buildResp.Code {
 		case 0:
 			if buildResp.Data.Updated != "" {
+				log.Info("pgyer build processed", "build_key", tokenResp.Data.Key, "updated", buildResp.Data.Updated)
 				return nil
 			}
+			log.Info("pgyer build still processing", "attempt", attempt+1, "build_key", tokenResp.Data.Key)
 			// keep polling
 		case 1247:
+			log.Info("pgyer build ingesting", "attempt", attempt+1, "build_key", tokenResp.Data.Key)
 			// still being ingested, keep polling
 		default:
 			return fmt.Errorf("check build: [%d] %s", buildResp.Code, buildResp.Message)

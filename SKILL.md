@@ -65,64 +65,58 @@ apkgo version                   # Version info
     --notes-file   Read release notes from file
     --dry-run      Validate without uploading
 -t, --timeout      Timeout duration (default: 10m)
--c, --config       Config file path (default: apkgo.yaml)
+-c, --config       Config file path (loader prefers config/config.json when omitted)
 ```
 
 ## Configuration
 
-Create `apkgo.yaml` or use environment variables `APKGO_<STORE>_<KEY>`:
+Preferred local config is `config/config.json`. `apkgo.yaml` and environment variables `APKGO_<STORE>_<KEY>` still work for legacy or CI-only flows.
 
-```yaml
-# Hooks (optional): shell commands executed before/after uploads.
-# hooks:
-#   before: "./scripts/validate.sh"
-#   after: "./scripts/notify.sh"
-
-stores:
-  huawei:
-    # Recommended: paste the AGC Service Account JSON (raw or base64).
-    # client_id/client_secret still work but are deprecated by Huawei.
-    service_account: ""
-    # service_account_file: "/path/to/sa.json"  # alternative to inline
-  xiaomi:
-    email: ""           # required - developer account email
-    private_key: ""     # required - from dev.mi.com API management
-    cert: ""            # required - public-key certificate (PEM/base64)
-    # cert_file: "/path/to/pubkey.cer"  # alternative to inline
-  oppo:
-    client_id: ""       # required - from open.oppomobile.com
-    client_secret: ""   # required
-  vivo:
-    access_key: ""      # required - from dev.vivo.com.cn
-    access_secret: ""   # required
-  honor:
-    client_id: ""       # required - from developer.honor.com
-    client_secret: ""   # required
-    # app_id auto-detected from APK package name; set only to override.
-  tencent:
-    user_id: ""         # required - from app.open.qq.com
-    access_secret: ""   # required - API access secret
-    # Multi-app: map APK package_name → tencent app_id.
-    app_id_map: '{"com.example.app":"1234567"}'
-    # Single-app fallback (used when app_id_map is empty):
-    # app_id: ""
-  googleplay:
-    json_key_path: ""   # required - service account JSON key file
-    track: "internal"   # release track (default: internal)
-  samsung:
-    service_account_id: ""  # required
-    private_key_path: ""    # required
-
-  # Script store: run any shell command or script.
-  # Receives APK metadata as JSON on stdin; exit 0 = success.
-  # script:
-  #   command: "./deploy.sh"
-
-  # Multiple script instances via "script.<name>" prefix:
-  # script.cdn-upload:
-  #   command: "./upload-cdn.sh"
-  # script.dingtalk:
-  #   command: "./notify-dingtalk.sh"
+```json
+{
+  "hooks": {
+    "before": "./scripts/validate.sh",
+    "after": "./scripts/notify.sh"
+  },
+  "huawei": {
+    "service_account": "",
+    "service_account_file": "./config/huawei.json"
+  },
+  "xiaomi": {
+    "email": "",
+    "private_key": "",
+    "cert": "",
+    "cert_file": "./config/xiaomi.cer"
+  },
+  "oppo": {
+    "client_id": "",
+    "client_secret": ""
+  },
+  "vivo": {
+    "access_key": "",
+    "access_secret": ""
+  },
+  "honor": {
+    "client_id": "",
+    "client_secret": ""
+  },
+  "tencent": {
+    "user_id": "",
+    "access_secret": "",
+    "app_id_map": "{\"com.example.app\":\"1234567\"}"
+  },
+  "googleplay": {
+    "json_key_file": "",
+    "track": "internal"
+  },
+  "samsung": {
+    "service_account_id": "",
+    "private_key": ""
+  },
+  "script": {
+    "command": "./deploy.sh"
+  }
+}
 ```
 
 Environment variable example:
@@ -225,7 +219,8 @@ which apkgo || curl -fsSL https://apkgo.com.cn/install.sh | sh
 apkgo stores
 
 # 3. Generate config
-apkgo init --store huawei,xiaomi
+mkdir -p config
+apkgo init --store huawei,xiaomi -c config/config.json
 
 # 4. Fill in credentials (or use env vars)
 

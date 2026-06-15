@@ -52,7 +52,7 @@ In scope:
 Out of scope:
 
 - Third-party app store APIs themselves (report to the respective vendor).
-- Vulnerabilities that require a malicious local config file (`apkgo.yaml`)
+- Vulnerabilities that require a malicious local config file (`config/config.json`, `apkgo.yaml`)
   the user has authored — this is treated as trusted input.
 - The hosted `apkgo cloud` service (<https://apkgo.baici.tech>) — please
   contact that service directly.
@@ -114,7 +114,7 @@ high-severity finding and report it through the channels above.
 **不在范围内:**
 
 - 第三方应用商店 API 自身的漏洞(请联系对应厂商)。
-- 依赖用户主动提供恶意本地配置文件(`apkgo.yaml`)才能触发的问题——本地配置文件视为可信输入。
+- 依赖用户主动提供恶意本地配置文件(`config/config.json`、`apkgo.yaml`)才能触发的问题——本地配置文件视为可信输入。
 - 托管版 `apkgo cloud`(<https://apkgo.baici.tech>)——请直接联系该服务。
 
 ## 凭证处理说明
