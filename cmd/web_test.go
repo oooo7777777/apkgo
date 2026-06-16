@@ -277,6 +277,49 @@ func TestBuildWebConfigListItems_IncludesDefaultAuditPackage(t *testing.T) {
 	t.Fatalf("default_audit_package item not found")
 }
 
+func TestHandleWebConfigSave_PersistsDefaultAuditPackageOnly(t *testing.T) {
+	tmp := t.TempDir()
+	oldConfig := flagConfig
+	flagConfig = filepath.Join(tmp, "config.json")
+	defer func() { flagConfig = oldConfig }()
+
+	payload := webConfigPayload{
+		UI: webUIConfig{
+			DefaultAuditPackage: "uni.UNIE7FC6F0",
+		},
+	}
+	body, err := json.Marshal(payload)
+	if err != nil {
+		t.Fatalf("Marshal payload: %v", err)
+	}
+
+	req := httptest.NewRequest(http.MethodPost, "/api/config/save", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	handleWebConfigSave(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %s", w.Code, w.Body.String())
+	}
+
+	saved, err := os.ReadFile(flagConfig)
+	if err != nil {
+		t.Fatalf("ReadFile: %v", err)
+	}
+	var out map[string]json.RawMessage
+	if err := json.Unmarshal(saved, &out); err != nil {
+		t.Fatalf("Unmarshal saved: %v", err)
+	}
+
+	var ui map[string]any
+	if err := json.Unmarshal(out["ui"], &ui); err != nil {
+		t.Fatalf("Unmarshal ui: %v", err)
+	}
+	if ui["default_audit_package"] != "uni.UNIE7FC6F0" {
+		t.Fatalf("ui.default_audit_package = %#v, want uni.UNIE7FC6F0", ui["default_audit_package"])
+	}
+}
+
 func TestBuildWebConfigListItems_TreatsTemplateValuesAsUnconfigured(t *testing.T) {
 	doc := &webConfigDocument{
 		Hooks: map[string]map[string]string{

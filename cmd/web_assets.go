@@ -1569,7 +1569,7 @@ const webIndexHTML = `<!doctype html>
         clearMarkets();
         document.getElementById('result-panel').classList.remove('hidden');
         document.getElementById('result-json').textContent = JSON.stringify(data, null, 2);
-        setStatus('upload-status', data.error || '识别失败', 'bad');
+        setStatus('upload-status', data.error || '识别失败，请检查配置和上传文件。', 'bad');
         return;
       }
       detectedArtifacts = data.upload?.artifacts || [];
@@ -2295,6 +2295,8 @@ const webConfigHTML = `<!doctype html>
           .split('\n')
           .map((item) => item.trim())
           .filter(Boolean);
+      } else if (modalSection.sectionKey === 'ui') {
+        payload.ui.default_audit_package = String(document.querySelector('[data-field="default_audit_package"]').value || '').trim();
       } else if (modalSection.sectionKey === 'hooks') {
         payload.hooks.feishu_webhook = String(document.querySelector('[data-field="feishu_webhook"]').value || '').trim();
       } else {

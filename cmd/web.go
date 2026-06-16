@@ -349,7 +349,7 @@ func handleWebHistoryDetailPage(w http.ResponseWriter, r *http.Request) {
 
 func handleWebStores(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
-		writeWebError(w, http.StatusMethodNotAllowed, "method not allowed")
+		writeWebError(w, http.StatusMethodNotAllowed, "请求方法不支持")
 		return
 	}
 	cfg, err := loadWebConfig()
@@ -363,7 +363,7 @@ func handleWebStores(w http.ResponseWriter, r *http.Request) {
 
 func handleWebConfig(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
-		writeWebError(w, http.StatusMethodNotAllowed, "method not allowed")
+		writeWebError(w, http.StatusMethodNotAllowed, "请求方法不支持")
 		return
 	}
 	doc, err := loadWebEditableConfig()
@@ -393,7 +393,7 @@ func handleWebConfig(w http.ResponseWriter, r *http.Request) {
 
 func handleWebConfigSave(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
-		writeWebError(w, http.StatusMethodNotAllowed, "method not allowed")
+		writeWebError(w, http.StatusMethodNotAllowed, "请求方法不支持")
 		return
 	}
 	if flagCredsFrom != "" {
@@ -493,7 +493,7 @@ func handleWebConfigSave(w http.ResponseWriter, r *http.Request) {
 
 func handleWebHistory(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
-		writeWebError(w, http.StatusMethodNotAllowed, "method not allowed")
+		writeWebError(w, http.StatusMethodNotAllowed, "请求方法不支持")
 		return
 	}
 
@@ -516,7 +516,7 @@ func handleWebHistory(w http.ResponseWriter, r *http.Request) {
 
 func handleWebHistoryDelete(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
-		writeWebError(w, http.StatusMethodNotAllowed, "method not allowed")
+		writeWebError(w, http.StatusMethodNotAllowed, "请求方法不支持")
 		return
 	}
 
@@ -550,7 +550,7 @@ func handleWebHistoryDelete(w http.ResponseWriter, r *http.Request) {
 
 func handleWebUpload(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
-		writeWebError(w, http.StatusMethodNotAllowed, "method not allowed")
+		writeWebError(w, http.StatusMethodNotAllowed, "请求方法不支持")
 		return
 	}
 	if err := r.ParseMultipartForm(webUploadFormMemory); err != nil {
@@ -560,7 +560,7 @@ func handleWebUpload(w http.ResponseWriter, r *http.Request) {
 
 	cfg, err := loadWebRuntimeConfig()
 	if err != nil {
-		writeWebError(w, http.StatusBadRequest, fmt.Sprintf("load web config: %v", err))
+		writeWebError(w, http.StatusBadRequest, fmt.Sprintf("读取 Web 配置失败：%v", err))
 		return
 	}
 
@@ -596,7 +596,7 @@ func handleWebUpload(w http.ResponseWriter, r *http.Request) {
 	streamWebHeaders(w)
 	flusher, ok := w.(http.Flusher)
 	if !ok {
-		writeWebStreamEvent(w, webStreamEvent{Type: "error", Message: "streaming unsupported"})
+		writeWebStreamEvent(w, webStreamEvent{Type: "error", Message: "当前环境不支持流式返回"})
 		return
 	}
 	result, err := runWebBundleStream(context.Background(), cfg, filtered, notes, publishMode, publishTime, dryRun, func(ev webStreamEvent) {
@@ -613,7 +613,7 @@ func handleWebUpload(w http.ResponseWriter, r *http.Request) {
 
 func handleWebAudit(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
-		writeWebError(w, http.StatusMethodNotAllowed, "method not allowed")
+		writeWebError(w, http.StatusMethodNotAllowed, "请求方法不支持")
 		return
 	}
 	if err := r.ParseMultipartForm(webUploadFormMemory); err != nil {
@@ -623,7 +623,7 @@ func handleWebAudit(w http.ResponseWriter, r *http.Request) {
 
 	cfg, err := loadWebRuntimeConfig()
 	if err != nil {
-		writeWebError(w, http.StatusBadRequest, fmt.Sprintf("load web config: %v", err))
+		writeWebError(w, http.StatusBadRequest, fmt.Sprintf("读取 Web 配置失败：%v", err))
 		return
 	}
 
@@ -661,7 +661,7 @@ func handleWebAudit(w http.ResponseWriter, r *http.Request) {
 
 func handleWebAuditSyncFeishu(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
-		writeWebError(w, http.StatusMethodNotAllowed, "method not allowed")
+		writeWebError(w, http.StatusMethodNotAllowed, "请求方法不支持")
 		return
 	}
 
@@ -696,7 +696,7 @@ func handleWebAuditSyncFeishu(w http.ResponseWriter, r *http.Request) {
 
 func handleWebInspect(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
-		writeWebError(w, http.StatusMethodNotAllowed, "method not allowed")
+		writeWebError(w, http.StatusMethodNotAllowed, "请求方法不支持")
 		return
 	}
 	if err := r.ParseMultipartForm(webUploadFormMemory); err != nil {
@@ -706,7 +706,7 @@ func handleWebInspect(w http.ResponseWriter, r *http.Request) {
 
 	cfg, err := loadWebRuntimeConfig()
 	if err != nil {
-		writeWebError(w, http.StatusBadRequest, fmt.Sprintf("load web config: %v", err))
+		writeWebError(w, http.StatusBadRequest, fmt.Sprintf("读取 Web 配置失败：%v", err))
 		return
 	}
 
@@ -742,14 +742,14 @@ func parseWebConfigSaveRequest(r *http.Request) (webConfigPayload, []webConfigFi
 	var payload webConfigPayload
 	if strings.Contains(strings.ToLower(r.Header.Get("Content-Type")), "multipart/form-data") {
 		if err := r.ParseMultipartForm(webUploadFormMemory); err != nil {
-			return payload, nil, func() {}, fmt.Errorf("parse config payload: %v", err)
+			return payload, nil, func() {}, fmt.Errorf("解析配置参数失败：%v", err)
 		}
 		raw := strings.TrimSpace(r.FormValue("payload"))
 		if raw == "" {
-			return payload, nil, func() {}, fmt.Errorf("parse config payload: missing payload")
+			return payload, nil, func() {}, fmt.Errorf("解析配置参数失败：缺少 payload")
 		}
 		if err := json.Unmarshal([]byte(raw), &payload); err != nil {
-			return payload, nil, func() {}, fmt.Errorf("parse config payload: %v", err)
+			return payload, nil, func() {}, fmt.Errorf("解析配置参数失败：%v", err)
 		}
 		uploads, cleanup, err := saveWebConfigUploadedFiles(r)
 		if err != nil {
@@ -759,7 +759,7 @@ func parseWebConfigSaveRequest(r *http.Request) (webConfigPayload, []webConfigFi
 	}
 
 	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
-		return payload, nil, func() {}, fmt.Errorf("parse config payload: %v", err)
+		return payload, nil, func() {}, fmt.Errorf("解析配置参数失败：%v", err)
 	}
 	return payload, nil, func() {}, nil
 }
@@ -1434,7 +1434,7 @@ func loadWebRuntimeConfig() (*config.Config, error) {
 		filtered.Stores[name] = clean
 	}
 	if len(filtered.Stores) == 0 {
-		return nil, fmt.Errorf("no stores configured (check %s)", flagConfig)
+		return nil, fmt.Errorf("未配置任何可用市场，请先在 %s 中完成配置", flagConfig)
 	}
 	return filtered, nil
 }
