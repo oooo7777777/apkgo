@@ -877,7 +877,7 @@ const webIndexHTML = `<!doctype html>
         <div class="hero-bar">
           <h1>APKGO</h1>
           <div class="hero-actions">
-            <a class="hero-link" href="/doctor">环境检测</a>
+            <a class="hero-link" href="/config">配置中心</a>
             <a class="hero-link" href="/history">发布记录</a>
             <a class="hero-link" href="/audit">审核查询</a>
           </div>
@@ -1673,12 +1673,12 @@ const webIndexHTML = `<!doctype html>
 </html>
 `
 
-const webDoctorHTML = `<!doctype html>
+const webConfigHTML = `<!doctype html>
 <html lang="zh-CN">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>apkgo Doctor</title>
+  <title>apkgo Config</title>
   <style>
     :root {
       --bg: #090b10;
@@ -1706,11 +1706,11 @@ const webDoctorHTML = `<!doctype html>
         linear-gradient(180deg, #07090d 0%, var(--bg) 100%);
     }
     .shell {
-      max-width: 1200px;
+      max-width: 1120px;
       margin: 0 auto;
       padding: 28px 20px 52px;
     }
-    .hero, .panel {
+    .hero, .panel, .modal-card {
       background: var(--panel);
       border: 1px solid var(--line);
       box-shadow: var(--shadow);
@@ -1765,12 +1765,6 @@ const webDoctorHTML = `<!doctype html>
       font-weight: 800;
       letter-spacing: 0.08em;
       text-transform: uppercase;
-      transition: transform .16s ease, border-color .16s ease, background .16s ease;
-    }
-    .hero-link:hover {
-      transform: translateY(-1px);
-      border-color: rgba(77,226,197,0.28);
-      background: rgba(77,226,197,0.08);
     }
     h1 {
       margin: 0;
@@ -1784,35 +1778,10 @@ const webDoctorHTML = `<!doctype html>
       font-size: 14px;
       line-height: 1.8;
     }
-    .hero-side {
-      display: grid;
-      gap: 12px;
-      grid-template-columns: repeat(3, minmax(0, 1fr));
-    }
-    .hero-stat {
-      padding: 12px 14px;
-      border-radius: 18px;
-      background: rgba(255,255,255,0.03);
-      border: 1px solid rgba(255,255,255,0.06);
-      backdrop-filter: blur(12px);
-    }
-    .hero-stat strong {
-      display: block;
-      color: var(--muted);
-      font-size: 11px;
-      font-weight: 800;
-      letter-spacing: 0.08em;
-      text-transform: uppercase;
-      margin-bottom: 8px;
-    }
-    .hero-stat span {
-      font-size: 13px;
-      line-height: 1.5;
-      color: var(--text);
-    }
     .panel {
       border-radius: 28px;
       overflow: hidden;
+      margin-bottom: 20px;
     }
     .panel-head {
       padding: 18px 22px 14px;
@@ -1827,70 +1796,100 @@ const webDoctorHTML = `<!doctype html>
       text-transform: uppercase;
       margin-bottom: 10px;
     }
-    .head-row {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      gap: 14px;
-      flex-wrap: wrap;
-    }
-    .head-actions {
-      display: flex;
-      gap: 12px;
-      flex-wrap: wrap;
-    }
     .panel h2 {
       margin: 0;
       font-size: 24px;
       letter-spacing: -0.04em;
     }
     .panel-body {
-      padding: 22px;
-      display: grid;
-      gap: 16px;
+      padding: 10px 22px 22px;
     }
-    .field {
+    .config-group {
+      margin-top: 20px;
+      padding: 14px 14px 12px;
+      border-radius: 24px;
+      background: rgba(255,255,255,0.02);
+      border: 1px solid rgba(130,164,255,0.12);
+    }
+    .group-title {
+      margin: 0 0 10px;
+      padding-bottom: 10px;
+      border-bottom: 1px solid rgba(255,255,255,0.06);
+      font-size: 14px;
+      font-weight: 800;
+      letter-spacing: 0.02em;
+      color: var(--accent);
+      text-transform: uppercase;
+    }
+    .config-list {
       display: grid;
       gap: 8px;
     }
-    label.small {
-      font-size: 12px;
+    .config-row {
+      display: grid;
+      grid-template-columns: minmax(180px, 220px) minmax(0, 1fr) auto;
+      gap: 12px;
+      align-items: center;
+      padding: 10px 12px;
+      border-radius: 14px;
+      background: rgba(255,255,255,0.025);
+      border: 1px solid rgba(130,164,255,0.1);
+    }
+    .config-row.is-configured {
+      background: rgba(70,211,154,0.05);
+      border-color: rgba(70,211,154,0.18);
+    }
+    .config-row.is-unconfigured {
+      background: rgba(255,255,255,0.02);
+      border-color: rgba(255,255,255,0.07);
+    }
+    .config-meta {
+      display: grid;
+      gap: 2px;
+      align-items: center;
+    }
+    .config-name {
+      font-size: 14px;
+      font-weight: 800;
+    }
+    .config-subtitle {
       color: var(--muted);
-      font-weight: 700;
-      letter-spacing: 0.04em;
+      font-size: 11px;
+      line-height: 1.4;
+      letter-spacing: 0.03em;
       text-transform: uppercase;
     }
-    input {
-      width: 100%;
-      border: 1px solid rgba(130,164,255,0.14);
-      border-radius: 16px;
-      background: rgba(8,12,18,0.9);
-      padding: 14px 15px;
-      font: inherit;
+    .config-summary {
       color: var(--text);
-      transition: border-color .18s ease, box-shadow .18s ease;
+      font-size: 13px;
+      line-height: 1.5;
+      font-weight: 500;
+      opacity: 0.92;
+      word-break: break-word;
     }
-    input:focus {
-      outline: none;
-      border-color: rgba(77,226,197,0.45);
-      box-shadow: 0 0 0 4px rgba(77,226,197,0.1);
+    .config-summary.ok {
+      color: var(--ok);
     }
-    button {
-      border: 0;
+    .config-summary.pending {
+      color: var(--muted);
+    }
+    .config-action {
+      border: 1px solid rgba(77,226,197,0.18);
       border-radius: 999px;
-      padding: 15px 26px;
-      min-width: 180px;
+      padding: 8px 14px;
+      min-width: 72px;
       font: inherit;
+      font-size: 12px;
       font-weight: 800;
       cursor: pointer;
-      transition: transform .16s ease, opacity .16s ease, box-shadow .16s ease, background .16s ease;
+      color: var(--accent);
+      background: rgba(77,226,197,0.08);
+      box-shadow: none;
     }
-    button:hover { transform: translateY(-1px); }
-    button:disabled { opacity: .45; cursor: wait; transform: none; }
-    .primary-btn {
-      color: #051014;
-      background: linear-gradient(135deg, var(--accent), #8bf6df);
-      box-shadow: 0 16px 34px rgba(77,226,197,0.18);
+    .config-action[disabled],
+    .ghost-btn[disabled] {
+      opacity: 0.62;
+      cursor: wait;
     }
     .status {
       padding: 12px 14px;
@@ -1898,6 +1897,7 @@ const webDoctorHTML = `<!doctype html>
       display: none;
       font-size: 14px;
       line-height: 1.6;
+      margin-bottom: 16px;
     }
     .status.show { display: block; }
     .status.ok {
@@ -1915,119 +1915,167 @@ const webDoctorHTML = `<!doctype html>
       color: var(--info);
       border: 1px solid rgba(145,184,255,0.14);
     }
-    .doctor-results {
+    .modal {
+      position: fixed;
+      inset: 0;
+      display: none;
+      align-items: center;
+      justify-content: center;
+      padding: 24px;
+      background: rgba(3,6,10,0.72);
+      backdrop-filter: blur(10px);
+      z-index: 40;
+    }
+    .modal.show {
+      display: flex;
+    }
+    .modal-card {
+      width: min(760px, 100%);
+      border-radius: 28px;
+      overflow: hidden;
+    }
+    .modal-head {
+      padding: 20px 22px 14px;
+      border-bottom: 1px solid rgba(255,255,255,0.05);
+    }
+    .modal-body {
+      padding: 20px 22px 22px;
       display: grid;
       gap: 14px;
     }
-    .doctor-card {
-      border: 1px solid rgba(130,164,255,0.14);
-      border-radius: 22px;
-      padding: 16px 18px;
-      background: rgba(255,255,255,0.03);
+    .modal-status {
+      display: none;
+      padding: 12px 14px;
+      border-radius: 16px;
+      border: 1px solid rgba(255,255,255,0.08);
+      font-size: 13px;
+      line-height: 1.6;
     }
-    .doctor-card.ok { border-color: rgba(70,211,154,0.24); }
-    .doctor-card.warn { border-color: rgba(255,180,84,0.24); }
-    .doctor-card.bad { border-color: rgba(255,107,122,0.24); }
-    .doctor-card.info { border-color: rgba(145,184,255,0.24); }
-    .doctor-head {
+    .modal-status.show {
+      display: block;
+    }
+    .modal-status.bad {
+      color: #ffd5da;
+      background: rgba(255,107,122,0.12);
+      border-color: rgba(255,107,122,0.28);
+    }
+    .modal-status.ok {
+      color: #d6ffef;
+      background: rgba(70,211,154,0.12);
+      border-color: rgba(70,211,154,0.28);
+    }
+    .modal-stack {
+      display: grid;
+      gap: 14px;
+    }
+    .doc-card {
+      display: grid;
+      grid-template-columns: 40px minmax(0, 1fr) 18px;
+      gap: 10px;
+      align-items: center;
+      padding: 12px 14px;
+      border-radius: 18px;
+      background: rgba(21,94,108,0.34);
+      border: 1px solid #35d0ff;
+      color: var(--text);
+      text-decoration: none;
+    }
+    .doc-icon {
+      width: 40px;
+      height: 40px;
+      border-radius: 12px;
       display: flex;
       align-items: center;
-      justify-content: space-between;
-      gap: 12px;
-      margin-bottom: 12px;
-    }
-    .doctor-store {
-      font-size: 18px;
+      justify-content: center;
+      background: #54c9f0;
+      color: #08212a;
+      font-size: 16px;
       font-weight: 800;
     }
-    .doctor-probes {
-      display: grid;
-      gap: 10px;
-    }
-    .doctor-probe {
-      border-radius: 16px;
-      padding: 12px 14px;
-      background: rgba(8,12,18,0.76);
-      border: 1px solid rgba(255,255,255,0.04);
-    }
-    .doctor-probe-head {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      gap: 12px;
-      margin-bottom: 6px;
-    }
-    .doctor-probe-name {
+    .doc-title {
       font-size: 13px;
       font-weight: 800;
+      margin-bottom: 2px;
+    }
+    .doc-link {
+      color: rgba(237,243,255,0.58);
+      font-size: 11px;
+      line-height: 1.45;
+      word-break: break-all;
+    }
+    .doc-arrow {
+      font-size: 16px;
+      color: var(--text);
+      text-align: right;
+    }
+    .modal-grid {
+      display: grid;
+      gap: 14px;
+      grid-template-columns: 1fr;
+    }
+    .field {
+      display: grid;
+      gap: 8px;
+    }
+    label.small {
+      font-size: 12px;
+      color: var(--muted);
+      font-weight: 700;
       letter-spacing: 0.04em;
       text-transform: uppercase;
     }
-    .doctor-probe-detail {
+    input, textarea {
+      width: 100%;
+      border: 1px solid rgba(130,164,255,0.14);
+      border-radius: 16px;
+      background: rgba(8,12,18,0.9);
+      padding: 14px 15px;
+      font: inherit;
+      color: var(--text);
+    }
+    textarea {
+      min-height: 120px;
+      resize: vertical;
+    }
+    input[type="file"] {
+      padding: 12px 14px;
+      line-height: 1.4;
+    }
+    .field-value {
       color: var(--muted);
-      font-size: 13px;
-      line-height: 1.7;
-      word-break: break-word;
+      font-size: 12px;
+      line-height: 1.6;
+      word-break: break-all;
     }
-    .result-json {
-      margin: 0;
-      padding: 18px;
-      border-radius: 20px;
-      background: rgba(6,10,16,0.96);
-      border: 1px solid rgba(255,255,255,0.06);
-      color: #d8f1eb;
-      min-height: 180px;
-      overflow: auto;
-      display: none;
-      white-space: pre-wrap;
-      word-break: break-word;
+    .hint {
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.6;
     }
-    .result-json.show {
-      display: block;
+    .modal-actions {
+      display: flex;
+      justify-content: flex-end;
+      gap: 12px;
+      flex-wrap: wrap;
+      margin-top: 6px;
     }
-    .badge {
+    .ghost-btn {
+      color: var(--text);
+      background: rgba(255,255,255,0.05);
+      border: 1px solid rgba(255,255,255,0.08);
       border-radius: 999px;
-      padding: 5px 9px;
-      font-size: 11px;
+      padding: 12px 18px;
+      min-width: 96px;
+      font: inherit;
       font-weight: 800;
-      line-height: 1;
-      letter-spacing: 0.02em;
+      cursor: pointer;
     }
-    .badge.ok {
-      background: rgba(70,211,154,0.14);
-      color: var(--ok);
-    }
-    .badge.warn {
-      background: rgba(255,180,84,0.14);
-      color: var(--warn);
-    }
-    .badge.bad {
-      background: rgba(255,107,122,0.14);
-      color: var(--bad);
-    }
-    .badge.info {
-      background: rgba(145,184,255,0.14);
-      color: var(--info);
-    }
-    @media (max-width: 980px) {
-      .hero-side {
+    @media (max-width: 860px) {
+      .config-row {
         grid-template-columns: 1fr;
       }
-      button {
-        width: 100%;
-        min-width: 0;
-      }
-    }
-    @media (max-width: 640px) {
-      .shell {
-        padding: 20px 14px 40px;
-      }
-      .hero, .panel-head, .panel-body {
-        padding-left: 18px;
-        padding-right: 18px;
-      }
-      .hero-bar {
-        flex-direction: column;
+      .modal-grid {
+        grid-template-columns: 1fr;
       }
     }
   </style>
@@ -2037,47 +2085,46 @@ const webDoctorHTML = `<!doctype html>
     <section class="hero">
       <div class="hero-top">
         <div class="hero-bar">
-          <h1>Doctor</h1>
+          <h1>Config</h1>
           <a class="hero-link" href="/">返回发布页</a>
         </div>
-        <div class="hero-desc">环境检测用于确认各市场的凭证、权限和应用绑定状态。该页面不会执行上传，仅发起诊断探测请求。</div>
-        <div class="hero-side">
-          <div class="hero-stat">
-            <strong>Default Package</strong>
-            <span id="doctor-default-package">读取中...</span>
-          </div>
-          <div class="hero-stat">
-            <strong>Scope</strong>
-            <span>所有已配置市场</span>
-          </div>
-          <div class="hero-stat">
-            <strong>Checks</strong>
-            <span>凭证可用性 / 权限状态 / 应用绑定</span>
-          </div>
-        </div>
+        <div class="hero-desc">集中维护发布流程需要的核心配置。每项配置按条目展示，可单独编辑与保存。</div>
       </div>
     </section>
 
     <section class="panel">
       <div class="panel-head">
-        <div class="panel-kicker">doctor flow</div>
-        <div class="head-row">
-          <h2>环境检测</h2>
-          <div class="head-actions">
-            <button type="button" id="doctor-btn" class="primary-btn">开始检测</button>
-          </div>
-        </div>
+        <div class="panel-kicker">config center</div>
+        <h2>配置列表</h2>
       </div>
       <div class="panel-body">
-        <div id="doctor-status" class="status"></div>
-        <div id="doctor-results" class="doctor-results"></div>
-        <pre id="doctor-json" class="result-json"></pre>
+        <div id="config-groups"></div>
       </div>
     </section>
   </div>
 
+  <div id="config-modal" class="modal" aria-hidden="true">
+    <div class="modal-card">
+      <div class="modal-head">
+        <div class="panel-kicker">edit item</div>
+        <h2 id="modal-title">编辑配置</h2>
+      </div>
+      <div class="modal-body">
+        <div id="modal-status" class="modal-status"></div>
+        <div id="modal-desc" class="hint"></div>
+        <div id="modal-fields" class="modal-grid"></div>
+        <div class="modal-actions">
+          <button type="button" id="modal-cancel" class="ghost-btn">取消</button>
+          <button type="button" id="modal-save" class="config-action">保存</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
   <script>
-    let defaultDoctorPackage = '';
+    let configPayload = null;
+    let modalSection = null;
+    let modalSaving = false;
 
     function escapeHtml(value) {
       return String(value || '')
@@ -2088,141 +2135,243 @@ const webDoctorHTML = `<!doctype html>
         .replaceAll("'", '&#39;');
     }
 
-    function setStatus(message, kind) {
-      const el = document.getElementById('doctor-status');
+    function setModalStatus(message, kind) {
+      const el = document.getElementById('modal-status');
       if (!message) {
         el.textContent = '';
-        el.className = 'status';
+        el.className = 'modal-status';
         return;
       }
       el.textContent = message;
-      el.className = 'status show ' + kind;
+      el.className = 'modal-status show ' + kind;
     }
 
-    function storeName(store) {
-      const named = {
-        huawei: '华为',
-        xiaomi: '小米',
-        oppo: 'OPPO',
-        vivo: 'vivo',
-        honor: '荣耀',
-        tencent: '应用宝',
-        samsung: 'Samsung',
-        googleplay: 'Google Play',
-        pgyer: '蒲公英',
-        fir: 'fir.im',
-        script: 'Script',
+    function groupTitle(key) {
+      const map = {
+        stores: '商店凭证',
+        ui: '包名配置',
+        hooks: '飞书机器人配置',
+        aliases: '市场渠道名称配置',
       };
-      return named[store] || store;
+      return map[key] || key;
     }
 
-    function probeMeta(probe) {
-      switch (probe.status) {
-        case 'ok': return { label: '通过', badge: 'ok' };
-        case 'skip': return { label: '跳过', badge: 'info' };
-        case 'fail': return { label: '失败', badge: 'bad' };
-        default: return { label: '未知', badge: 'warn' };
-      }
+    function getSection(sectionKey) {
+      return (configPayload?.sections || []).find((item) => item.key === sectionKey) || null;
     }
 
-    function reportMeta(report) {
-      if (!report.supported) return { label: '未接入', badge: 'info', card: 'info', rank: 90 };
-      const probes = report.probes || [];
-      if (probes.some(item => item.status === 'fail')) return { label: '异常', badge: 'bad', card: 'bad', rank: 10 };
-      if (probes.some(item => item.status === 'skip')) return { label: '部分完成', badge: 'warn', card: 'warn', rank: 20 };
-      return { label: '可用', badge: 'ok', card: 'ok', rank: 30 };
-    }
-
-    function renderDoctorResults(data) {
-      const root = document.getElementById('doctor-results');
-      const json = document.getElementById('doctor-json');
-      root.innerHTML = '';
-      const stores = [...(data.stores || [])].sort((a, b) => {
-        const rankDiff = reportMeta(a).rank - reportMeta(b).rank;
-        if (rankDiff !== 0) return rankDiff;
-        return storeName(a.store).localeCompare(storeName(b.store), 'zh-CN');
-      });
-      for (const item of stores) {
-        const meta = reportMeta(item);
-        const card = document.createElement('article');
-        card.className = 'doctor-card ' + meta.card;
-        const probes = (item.probes || []).map((probe) => {
-          const pMeta = probeMeta(probe);
-          const detail = probe.error || probe.detail || '无附加信息';
-          const verbose = probe.verbose_detail ? '<div class="doctor-probe-detail">' + escapeHtml(probe.verbose_detail) + '</div>' : '';
+    function renderGroups() {
+      const groups = document.getElementById('config-groups');
+      const allItems = configPayload?.items || [];
+      const ordered = ['stores', 'ui', 'hooks', 'aliases'];
+      groups.innerHTML = ordered.map((groupKey) => {
+        const items = allItems
+          .filter((item) => item.group_key === groupKey)
+          .sort((a, b) => {
+            if (Boolean(a.configured) !== Boolean(b.configured)) {
+              return a.configured ? -1 : 1;
+            }
+            return String(a.display_name || '').localeCompare(String(b.display_name || ''), 'zh-CN');
+          });
+        if (!items.length) return '';
+        const list = items.map((item) => {
+          const rowClass = item.configured ? 'config-row is-configured' : 'config-row is-unconfigured';
+          const summaryClass = item.configured ? 'config-summary ok' : 'config-summary pending';
           return (
-            '<div class="doctor-probe">' +
-              '<div class="doctor-probe-head">' +
-                '<div class="doctor-probe-name">' + escapeHtml(probe.name || '-') + '</div>' +
-                '<span class="badge ' + pMeta.badge + '">' + escapeHtml(pMeta.label) + '</span>' +
+            '<div class="' + rowClass + '">' +
+              '<div class="config-meta">' +
+                '<div class="config-name">' + escapeHtml(item.display_name) + '</div>' +
+                (item.subtitle ? '<div class="config-subtitle">' + escapeHtml(item.subtitle) + '</div>' : '') +
               '</div>' +
-              '<div class="doctor-probe-detail">' + escapeHtml(detail) + '</div>' +
-              verbose +
+              '<div class="' + summaryClass + '">' + escapeHtml(item.summary || '未配置') + '</div>' +
+              '<button type="button" class="config-action" data-group="' + escapeHtml(item.group_key) + '" data-section="' + escapeHtml(item.section_key) + '" data-key="' + escapeHtml(item.key) + '">' + escapeHtml(item.edit_label || '编辑') + '</button>' +
             '</div>'
           );
         }).join('');
-        card.innerHTML =
-          '<div class="doctor-head">' +
-            '<div class="doctor-store">' + escapeHtml(storeName(item.store)) + '</div>' +
-            '<span class="badge ' + meta.badge + '">' + escapeHtml(meta.label) + '</span>' +
-          '</div>' +
-          (item.supported
-            ? '<div class="doctor-probes">' + probes + '</div>'
-            : '<div class="doctor-probe-detail">该市场当前未接入 doctor 检测能力。</div>');
-        root.appendChild(card);
+        return '<section class="config-group"><div class="group-title">' + escapeHtml(groupTitle(groupKey)) + '</div><div class="config-list">' + list + '</div></section>';
+      }).join('');
+    }
+
+    function sectionValue(sectionKey, fieldKey) {
+      if (sectionKey === 'hooks') return configPayload?.hooks?.feishu_webhook || '';
+      if (sectionKey === 'ui') return configPayload?.ui?.default_audit_package || '';
+      if (sectionKey === 'aliases') return '';
+      return configPayload?.stores_config?.[sectionKey]?.[fieldKey] || '';
+    }
+
+    function openModal(groupKey, sectionKey, itemKey) {
+      modalSection = { groupKey, sectionKey, itemKey };
+      const title = document.getElementById('modal-title');
+      const desc = document.getElementById('modal-desc');
+      const fields = document.getElementById('modal-fields');
+      setModalStatus('', '');
+      title.textContent = '编辑 ' + itemKey;
+      desc.textContent = '';
+
+      if (groupKey === 'aliases' && configPayload?.market_aliases?.[itemKey]) {
+        title.textContent = '编辑 ' + itemKey + ' 渠道名称';
+        desc.textContent = '使用换行分隔多个别名，例如 tencent 和 qq。';
+        fields.innerHTML =
+          '<div class="field full">' +
+            '<label class="small">别名列表</label>' +
+            '<textarea id="alias-editor">' + escapeHtml((configPayload.market_aliases[itemKey] || []).join('\n')) + '</textarea>' +
+          '</div>';
+      } else {
+        const section = getSection(sectionKey);
+        if (!section) return;
+        title.textContent = '编辑 ' + (section.display_name || itemKey);
+        desc.textContent = section.description || '';
+        const docCard = section.doc_url
+          ? '<a class="doc-card" href="' + escapeHtml(section.doc_url) + '" target="_blank" rel="noreferrer">' +
+              '<div class="doc-icon">◫</div>' +
+              '<div>' +
+                '<div class="doc-title">查看获取凭证文档</div>' +
+                '<div class="doc-link">' + escapeHtml(section.doc_url) + '</div>' +
+              '</div>' +
+              '<div class="doc-arrow">↗</div>' +
+            '</a>'
+          : '';
+        fields.innerHTML = '<div class="modal-stack">' + docCard + '<div class="modal-grid">' + (section.fields || []).map((field) => {
+          const value = sectionValue(sectionKey, field.key);
+          const control = field.file
+            ? '<input type="file" data-field="' + escapeHtml(field.key) + '" ' + (field.accept ? 'accept="' + escapeHtml(field.accept) + '"' : '') + '>'
+            : (field.multiline
+              ? '<textarea data-field="' + escapeHtml(field.key) + '" placeholder="' + escapeHtml(field.placeholder || '') + '">' + escapeHtml(value) + '</textarea>'
+              : '<input ' + (field.secret ? 'type="password"' : 'type="text"') + ' data-field="' + escapeHtml(field.key) + '" value="' + escapeHtml(value) + '" placeholder="' + escapeHtml(field.placeholder || '') + '">');
+          return (
+            '<div class="field">' +
+              '<label class="small">' + escapeHtml(field.label) + '</label>' +
+              control +
+              (field.file ? '<div class="field-value">当前文件：' + escapeHtml(value || '未上传') + '</div>' : '') +
+              (field.advanced ? '<div class="hint">高级字段</div>' : '') +
+            '</div>'
+          );
+        }).join('') + '</div></div>';
       }
-      json.textContent = JSON.stringify(data, null, 2);
-      json.className = 'result-json show';
+
+      document.getElementById('config-modal').classList.add('show');
+      document.getElementById('config-modal').setAttribute('aria-hidden', 'false');
+    }
+
+    function closeModal() {
+      if (modalSaving) return;
+      setModalStatus('', '');
+      modalSection = null;
+      document.getElementById('config-modal').classList.remove('show');
+      document.getElementById('config-modal').setAttribute('aria-hidden', 'true');
+    }
+
+    function buildSavePayload() {
+      return {
+        ui: configPayload.ui || {},
+        hooks: configPayload.hooks || {},
+        stores: configPayload.stores_config || {},
+        market_aliases: configPayload.market_aliases || {},
+        target_group: modalSection?.groupKey || '',
+        target_section: modalSection?.sectionKey || '',
+      };
+    }
+
+    function setModalSaving(saving) {
+      modalSaving = saving;
+      const saveButton = document.getElementById('modal-save');
+      const cancelButton = document.getElementById('modal-cancel');
+      if (saveButton) {
+        saveButton.disabled = saving;
+        saveButton.textContent = saving ? '保存中...' : '保存';
+      }
+      if (cancelButton) {
+        cancelButton.disabled = saving;
+      }
+    }
+
+    async function saveModal() {
+      if (!modalSection || modalSaving) return;
+      const payload = buildSavePayload();
+      const formData = new FormData();
+      let hasFile = false;
+      if (modalSection.groupKey === 'aliases' && payload.market_aliases[modalSection.itemKey] != null) {
+        payload.market_aliases[modalSection.itemKey] = String(document.getElementById('alias-editor').value || '')
+          .split('\n')
+          .map((item) => item.trim())
+          .filter(Boolean);
+      } else if (modalSection.sectionKey === 'hooks') {
+        payload.hooks.feishu_webhook = String(document.querySelector('[data-field="feishu_webhook"]').value || '').trim();
+      } else {
+        if (!payload.stores[modalSection.sectionKey]) payload.stores[modalSection.sectionKey] = {};
+        for (const field of document.querySelectorAll('[data-field]')) {
+          const fieldKey = field.getAttribute('data-field');
+          if (field.type === 'file') {
+            const file = field.files && field.files[0];
+            if (file) {
+              hasFile = true;
+              formData.append('store_file_' + modalSection.sectionKey + '__' + fieldKey, file);
+            }
+            continue;
+          }
+          payload.stores[modalSection.sectionKey][fieldKey] = String(field.value || '').trim();
+        }
+      }
+
+      setModalStatus('', '');
+      setModalSaving(true);
+      try {
+        let resp;
+        if (hasFile) {
+          formData.append('payload', JSON.stringify(payload));
+          resp = await fetch('/api/config/save', {
+            method: 'POST',
+            body: formData,
+          });
+        } else {
+          resp = await fetch('/api/config/save', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload),
+          });
+        }
+        const data = await resp.json();
+        if (!resp.ok) {
+          setModalStatus(data.error || '保存失败', 'bad');
+          return;
+        }
+        await loadConfig();
+        setModalStatus('配置保存成功。', 'ok');
+        setTimeout(() => {
+          if (!modalSaving) closeModal();
+        }, 500);
+      } finally {
+        setModalSaving(false);
+      }
     }
 
     async function loadConfig() {
       const resp = await fetch('/api/config');
       const data = await resp.json();
-      defaultDoctorPackage = data?.ui?.default_audit_package || '';
-      document.getElementById('doctor-default-package').textContent = defaultDoctorPackage || '未配置';
-    }
-
-    async function runDoctor() {
-      const btn = document.getElementById('doctor-btn');
-      btn.disabled = true;
-      setStatus('正在检测已配置市场的凭证与权限...', 'info');
-      try {
-        const fd = new FormData();
-        if (defaultDoctorPackage) fd.append('package', defaultDoctorPackage);
-        const resp = await fetch('/api/doctor', { method: 'POST', body: fd });
-        const data = await resp.json();
-        if (!resp.ok) {
-          setStatus(data.error || '检测失败', 'bad');
-          return;
-        }
-        renderDoctorResults(data);
-        const stores = data.stores || [];
-        const failed = stores.filter(item => reportMeta(item).badge === 'bad').length;
-        const partial = stores.filter(item => reportMeta(item).badge === 'warn').length;
-        const ready = stores.filter(item => reportMeta(item).badge === 'ok').length;
-        if (failed > 0) {
-          setStatus('检测完成，' + ready + ' 个市场可用，' + partial + ' 个部分完成，' + failed + ' 个异常。', 'bad');
-        } else if (partial > 0) {
-          setStatus('检测完成，' + ready + ' 个市场可用，' + partial + ' 个检查需要补充包名或 APK。', 'info');
-        } else {
-          setStatus('检测完成，全部市场可用。', 'ok');
-        }
-      } catch (err) {
-        setStatus('检测失败：' + String(err), 'bad');
-      } finally {
-        btn.disabled = false;
+      if (!resp.ok) throw new Error(data.error || '读取配置失败');
+      configPayload = data;
+      if (!configPayload.market_aliases || !Object.keys(configPayload.market_aliases).length) {
+        configPayload.market_aliases = {};
       }
+      renderGroups();
     }
 
-    document.getElementById('doctor-btn').addEventListener('click', runDoctor);
+    document.addEventListener('click', (event) => {
+      const trigger = event.target.closest('[data-group][data-section][data-key]');
+      if (trigger) {
+        openModal(trigger.getAttribute('data-group'), trigger.getAttribute('data-section'), trigger.getAttribute('data-key'));
+      }
+    });
+    document.getElementById('modal-cancel').addEventListener('click', closeModal);
+    document.getElementById('modal-save').addEventListener('click', saveModal);
+    document.getElementById('config-modal').addEventListener('click', (event) => {
+      if (event.target.id === 'config-modal') closeModal();
+    });
 
-    loadConfig()
-      .then(() => runDoctor())
-      .catch((err) => {
-        const msg = '读取配置失败：' + String(err);
-        document.getElementById('doctor-default-package').textContent = msg;
-        setStatus(msg, 'bad');
-      });
+    loadConfig().catch((err) => {
+      document.getElementById('config-groups').innerHTML =
+        '<div class="status show bad">读取配置失败：' + escapeHtml(String(err)) + '</div>';
+    });
   </script>
 </body>
 </html>

@@ -13,6 +13,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -77,6 +78,154 @@ type webUIConfig struct {
 	ManualURLs          map[string]string `json:"manual_urls"`
 }
 
+type webConfigField struct {
+	Key         string `json:"key"`
+	Label       string `json:"label"`
+	Description string `json:"description,omitempty"`
+	Placeholder string `json:"placeholder,omitempty"`
+	Accept      string `json:"accept,omitempty"`
+	Secret      bool   `json:"secret,omitempty"`
+	Required    bool   `json:"required,omitempty"`
+	Multiline   bool   `json:"multiline,omitempty"`
+	Advanced    bool   `json:"advanced,omitempty"`
+	File        bool   `json:"file,omitempty"`
+}
+
+type webConfigSection struct {
+	Key         string           `json:"key"`
+	DisplayName string           `json:"display_name"`
+	Description string           `json:"description,omitempty"`
+	DocURL      string           `json:"doc_url,omitempty"`
+	Fields      []webConfigField `json:"fields"`
+}
+
+type webConfigListItem struct {
+	GroupKey    string `json:"group_key"`
+	Key         string `json:"key"`
+	DisplayName string `json:"display_name"`
+	Subtitle    string `json:"subtitle,omitempty"`
+	Summary     string `json:"summary,omitempty"`
+	Configured  bool   `json:"configured"`
+	SectionKey  string `json:"section_key"`
+	EditLabel   string `json:"edit_label"`
+}
+
+type webConfigDocument struct {
+	Hooks         map[string]map[string]string `json:"hooks,omitempty"`
+	MarketAliases map[string][]string          `json:"market_aliases,omitempty"`
+	UI            webUIConfig                  `json:"ui,omitempty"`
+	UpdateCheck   string                       `json:"update_check,omitempty"`
+	Stores        map[string]map[string]string `json:"stores,omitempty"`
+}
+
+type webConfigPayload struct {
+	UI            webUIConfig                  `json:"ui"`
+	Stores        map[string]map[string]string `json:"stores"`
+	MarketAliases map[string][]string          `json:"market_aliases"`
+	TargetGroup   string                       `json:"target_group,omitempty"`
+	TargetSection string                       `json:"target_section,omitempty"`
+	Hooks         struct {
+		FeishuWebhook string `json:"feishu_webhook"`
+	} `json:"hooks"`
+}
+
+type webConfigFileUpload struct {
+	Store string
+	Field string
+	File  webUploadedFile
+}
+
+var webConfigSections = []webConfigSection{
+	{
+		Key:         "hooks",
+		DisplayName: "通知",
+		Description: "上传完成后的飞书机器人通知配置。",
+		Fields: []webConfigField{
+			{Key: "feishu_webhook", Label: "飞书 Webhook", Placeholder: "https://open.feishu.cn/open-apis/bot/v2/hook/...", Secret: true},
+		},
+	},
+	{
+		Key:         "ui",
+		DisplayName: "Web 默认值",
+		Description: "审核页使用的默认包名。",
+		Fields: []webConfigField{
+			{Key: "default_audit_package", Label: "默认包名", Placeholder: "com.example.app"},
+		},
+	},
+}
+
+type webStoreSectionMeta struct {
+	Description string
+	DocURL      string
+}
+
+var webStoreSectionMetaMap = map[string]webStoreSectionMeta{
+	"huawei":     {DocURL: "https://developer.huawei.com/consumer/cn/doc/AppGallery-connect-Guides/agcapi-getstarted-0000001111845114#section1785535363715"},
+	"xiaomi":     {DocURL: "https://dev.mi.com/xiaomihyperos/documentation/detail?pId=1134"},
+	"oppo":       {DocURL: "https://open.oppomobile.com/new/developmentDoc/info?id=10998"},
+	"vivo":       {DocURL: "https://dev.vivo.com.cn/documentCenter/doc/326"},
+	"honor":      {DocURL: "https://developer.honor.com/cn/doc/guides/101360"},
+	"tencent":    {DocURL: "https://wikinew.open.qq.com/index.html#/iwiki/4015262492"},
+	"pgyer":      {DocURL: "https://www.pgyer.com/doc/view/app_upload"},
+	"fir":        {DocURL: "https://www.betaqr.com.cn/docs"},
+	"googleplay": {DocURL: "https://play.google.com/console"},
+	"samsung":    {DocURL: "https://seller.samsungapps.com"},
+}
+
+type webConfigFieldMeta struct {
+	Placeholder string
+	Secret      bool
+	Multiline   bool
+	Advanced    bool
+}
+
+var webStoreFieldMetaMap = map[string][]webConfigField{
+	"huawei": {
+		{Key: "service_account_file", Label: "SERVICE_ACCOUNT_FILE", Placeholder: "./config/huawei.json", Accept: ".json,application/json", File: true},
+	},
+	"xiaomi": {
+		{Key: "email", Label: "EMAIL"},
+		{Key: "private_key", Label: "PRIVATE_KEY", Secret: true, Multiline: true},
+		{Key: "cert_file", Label: "CERT_FILE", Placeholder: "./config/xiaomi.cer", Accept: ".cer,.crt,.pem", File: true},
+	},
+	"oppo": {
+		{Key: "client_id", Label: "CLIENT_ID"},
+		{Key: "client_secret", Label: "CLIENT_SECRET", Secret: true},
+	},
+	"vivo": {
+		{Key: "access_key", Label: "ACCESS_KEY"},
+		{Key: "access_secret", Label: "ACCESS_SECRET", Secret: true},
+	},
+	"honor": {
+		{Key: "client_id", Label: "CLIENT_ID"},
+		{Key: "client_secret", Label: "CLIENT_SECRET", Secret: true},
+	},
+	"tencent": {
+		{Key: "user_id", Label: "USER_ID"},
+		{Key: "app_id", Label: "APP_ID"},
+		{Key: "access_secret", Label: "ACCESS_SECRET", Secret: true},
+	},
+	"pgyer": {
+		{Key: "api_key", Label: "API_KEY", Secret: true},
+	},
+	"fir": {
+		{Key: "api_token", Label: "API_TOKEN", Secret: true},
+	},
+	"googleplay": {
+		{Key: "json_key_file", Label: "JSON_KEY_FILE"},
+		{Key: "package_name", Label: "PACKAGE_NAME"},
+		{Key: "track", Label: "TRACK"},
+	},
+	"samsung": {
+		{Key: "service_account_id", Label: "SERVICE_ACCOUNT_ID"},
+		{Key: "private_key", Label: "PRIVATE_KEY", Secret: true, Multiline: true},
+		{Key: "content_id", Label: "CONTENT_ID"},
+	},
+	"script": {
+		{Key: "command", Label: "COMMAND", Placeholder: "./deploy.sh"},
+	},
+}
+
 var webStoreMeta = map[string]webConfigStore{
 	"fir":        {Key: "fir", DisplayName: "fir.im"},
 	"huawei":     {Key: "huawei", DisplayName: "华为"},
@@ -91,6 +240,31 @@ var webStoreMeta = map[string]webConfigStore{
 	"pgyer":      {Key: "pgyer", DisplayName: "蒲公英"},
 }
 
+func buildWebConfigSections() []webConfigSection {
+	sections := make([]webConfigSection, 0, len(webConfigSections)+len(webStoreFieldMetaMap))
+	sections = append(sections, webConfigSections...)
+
+	var storeKeys []string
+	for key := range webStoreFieldMetaMap {
+		storeKeys = append(storeKeys, key)
+	}
+	sort.Strings(storeKeys)
+
+	for _, storeKey := range storeKeys {
+		meta := webStoreSectionMetaMap[storeKey]
+		fields := append([]webConfigField(nil), webStoreFieldMetaMap[storeKey]...)
+		sections = append(sections, webConfigSection{
+			Key:         storeKey,
+			DisplayName: storeDisplayName(storeKey),
+			Description: meta.Description,
+			DocURL:      meta.DocURL,
+			Fields:      fields,
+		})
+	}
+
+	return sections
+}
+
 func init() {
 	webCmd.Flags().StringVar(&flagWebAddr, "addr", "127.0.0.1:8787", "web server listen address")
 	rootCmd.AddCommand(webCmd)
@@ -103,13 +277,13 @@ var webCmd = &cobra.Command{
 		mux := http.NewServeMux()
 		mux.HandleFunc("/", handleWebIndex)
 		mux.HandleFunc("/audit", handleWebAuditPage)
-		mux.HandleFunc("/doctor", handleWebDoctorPage)
+		mux.HandleFunc("/config", handleWebConfigPage)
 		mux.HandleFunc("/history", handleWebHistoryPage)
 		mux.HandleFunc("/history/detail", handleWebHistoryDetailPage)
 		mux.HandleFunc("/api/audit", handleWebAudit)
 		mux.HandleFunc("/api/audit/sync-feishu", handleWebAuditSyncFeishu)
 		mux.HandleFunc("/api/config", handleWebConfig)
-		mux.HandleFunc("/api/doctor", handleWebDoctor)
+		mux.HandleFunc("/api/config/save", handleWebConfigSave)
 		mux.HandleFunc("/api/history", handleWebHistory)
 		mux.HandleFunc("/api/history/delete", handleWebHistoryDelete)
 		mux.HandleFunc("/api/stores", handleWebStores)
@@ -146,13 +320,13 @@ func handleWebAuditPage(w http.ResponseWriter, r *http.Request) {
 	io.WriteString(w, webAuditHTML)
 }
 
-func handleWebDoctorPage(w http.ResponseWriter, r *http.Request) {
-	if r.URL.Path != "/doctor" {
+func handleWebConfigPage(w http.ResponseWriter, r *http.Request) {
+	if r.URL.Path != "/config" {
 		http.NotFound(w, r)
 		return
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	io.WriteString(w, webDoctorHTML)
+	io.WriteString(w, webConfigHTML)
 }
 
 func handleWebHistoryPage(w http.ResponseWriter, r *http.Request) {
@@ -192,16 +366,128 @@ func handleWebConfig(w http.ResponseWriter, r *http.Request) {
 		writeWebError(w, http.StatusMethodNotAllowed, "method not allowed")
 		return
 	}
-	cfg, err := loadWebConfig()
+	doc, err := loadWebEditableConfig()
 	if err != nil {
 		writeWebError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
+	cfg, err := loadWebConfig()
+	if err != nil {
+		cfg = &config.Config{Stores: map[string]map[string]string{}}
+	}
 	stores := visibleWebStores(cfg)
+	sections := buildWebConfigSections()
 	writeWebJSON(w, http.StatusOK, map[string]any{
 		"path":              flagConfig,
 		"configured_stores": stores,
-		"ui":                loadWebUIConfig(),
+		"ui":                doc.UI,
+		"hooks": map[string]any{
+			"feishu_webhook": extractFeishuWebhook(doc.Hooks["after"]["command"]),
+		},
+		"stores_config":  doc.Stores,
+		"market_aliases": doc.MarketAliases,
+		"items":          buildWebConfigListItems(doc),
+		"sections":       sections,
+	})
+}
+
+func handleWebConfigSave(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		writeWebError(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+	if flagCredsFrom != "" {
+		writeWebError(w, http.StatusBadRequest, "当前运行模式不支持在 Web 中保存配置")
+		return
+	}
+
+	payload, uploads, cleanupUploads, err := parseWebConfigSaveRequest(r)
+	if err != nil {
+		writeWebError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	defer cleanupUploads()
+
+	doc, err := loadWebEditableConfig()
+	if err != nil {
+		writeWebError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	doc.UI = payload.UI
+	if doc.UI.ManualURLs == nil {
+		doc.UI.ManualURLs = map[string]string{}
+	}
+	if payload.MarketAliases != nil {
+		doc.MarketAliases = payload.MarketAliases
+	}
+	if doc.Stores == nil {
+		doc.Stores = map[string]map[string]string{}
+	}
+
+	for _, section := range buildWebConfigSections() {
+		if section.Key == "hooks" || section.Key == "ui" {
+			continue
+		}
+		values := map[string]string{}
+		for _, field := range section.Fields {
+			if payload.Stores[section.Key] == nil {
+				continue
+			}
+			v := strings.TrimSpace(payload.Stores[section.Key][field.Key])
+			if v != "" {
+				values[field.Key] = v
+			}
+		}
+		if len(values) == 0 {
+			delete(doc.Stores, section.Key)
+			continue
+		}
+		doc.Stores[section.Key] = values
+	}
+
+	if err := applyWebConfigFileUploads(doc, uploads); err != nil {
+		writeWebError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	webhook := strings.TrimSpace(payload.Hooks.FeishuWebhook)
+	if doc.Hooks == nil {
+		doc.Hooks = map[string]map[string]string{}
+	}
+	if webhook == "" {
+		delete(doc.Hooks, "after")
+	} else {
+		doc.Hooks["after"] = map[string]string{
+			"command": fmt.Sprintf("go run . notify feishu --webhook '%s'", webhook),
+		}
+	}
+
+	if strings.TrimSpace(payload.TargetGroup) == "stores" && strings.TrimSpace(payload.TargetSection) != "" {
+		sectionKey := strings.TrimSpace(payload.TargetSection)
+		if err := validateWebStoreSection(r.Context(), sectionKey, doc.Stores[sectionKey], doc.UI); err != nil {
+			writeWebError(w, http.StatusBadRequest, err.Error())
+			return
+		}
+	}
+	if err := persistWebConfigUploads(doc, uploads); err != nil {
+		writeWebError(w, http.StatusInternalServerError, fmt.Sprintf("save uploaded file: %v", err))
+		return
+	}
+
+	if err := saveWebEditableConfig(doc); err != nil {
+		writeWebError(w, http.StatusInternalServerError, fmt.Sprintf("save config: %v", err))
+		return
+	}
+
+	cfg, err := loadWebConfig()
+	if err != nil {
+		cfg = &config.Config{Stores: map[string]map[string]string{}}
+	}
+	writeWebJSON(w, http.StatusOK, map[string]any{
+		"ok":                true,
+		"path":              flagConfig,
+		"configured_stores": visibleWebStores(cfg),
 	})
 }
 
@@ -373,46 +659,6 @@ func handleWebAudit(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-func handleWebDoctor(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		writeWebError(w, http.StatusMethodNotAllowed, "method not allowed")
-		return
-	}
-	if err := r.ParseMultipartForm(webUploadFormMemory); err != nil {
-		writeWebError(w, http.StatusBadRequest, fmt.Sprintf("解析检测表单失败: %v", err))
-		return
-	}
-
-	cfg, err := loadWebRuntimeConfig()
-	if err != nil {
-		writeWebError(w, http.StatusBadRequest, fmt.Sprintf("load web config: %v", err))
-		return
-	}
-
-	packageName := strings.TrimSpace(r.FormValue("package"))
-	if packageName == "" {
-		packageName = strings.TrimSpace(loadWebUIConfig().DefaultAuditPackage)
-	}
-	apkPath, cleanupAPK, err := saveOptionalUploadedFile(r, "apk")
-	if err != nil {
-		writeWebError(w, http.StatusBadRequest, err.Error())
-		return
-	}
-	defer cleanupAPK()
-
-	result, err := apkgo.Diagnose(r.Context(), apkgo.DiagnoseJob{
-		Config:  cfg,
-		Package: packageName,
-		APKFile: apkPath,
-	})
-	if err != nil {
-		writeWebError(w, http.StatusBadRequest, err.Error())
-		return
-	}
-
-	writeWebJSON(w, http.StatusOK, result)
-}
-
 func handleWebAuditSyncFeishu(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		writeWebError(w, http.StatusMethodNotAllowed, "method not allowed")
@@ -492,26 +738,288 @@ func loadWebConfig() (*config.Config, error) {
 	return loadConfigForCmd()
 }
 
-func loadWebUIConfig() webUIConfig {
-	var cfg webUIConfig
+func parseWebConfigSaveRequest(r *http.Request) (webConfigPayload, []webConfigFileUpload, func(), error) {
+	var payload webConfigPayload
+	if strings.Contains(strings.ToLower(r.Header.Get("Content-Type")), "multipart/form-data") {
+		if err := r.ParseMultipartForm(webUploadFormMemory); err != nil {
+			return payload, nil, func() {}, fmt.Errorf("parse config payload: %v", err)
+		}
+		raw := strings.TrimSpace(r.FormValue("payload"))
+		if raw == "" {
+			return payload, nil, func() {}, fmt.Errorf("parse config payload: missing payload")
+		}
+		if err := json.Unmarshal([]byte(raw), &payload); err != nil {
+			return payload, nil, func() {}, fmt.Errorf("parse config payload: %v", err)
+		}
+		uploads, cleanup, err := saveWebConfigUploadedFiles(r)
+		if err != nil {
+			return payload, nil, func() {}, err
+		}
+		return payload, uploads, cleanup, nil
+	}
+
+	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+		return payload, nil, func() {}, fmt.Errorf("parse config payload: %v", err)
+	}
+	return payload, nil, func() {}, nil
+}
+
+func saveWebConfigUploadedFiles(r *http.Request) ([]webConfigFileUpload, func(), error) {
+	if r.MultipartForm == nil {
+		return nil, func() {}, nil
+	}
+	var uploads []webConfigFileUpload
+	var paths []string
+	cleanup := func() {
+		for _, path := range paths {
+			_ = os.Remove(path)
+		}
+	}
+
+	for fieldName, headers := range r.MultipartForm.File {
+		if !strings.HasPrefix(fieldName, "store_file_") {
+			continue
+		}
+		storeKey, configField, ok := parseWebConfigUploadFieldName(fieldName)
+		if !ok {
+			continue
+		}
+		for _, header := range headers {
+			f, err := header.Open()
+			if err != nil {
+				cleanup()
+				return nil, func() {}, fmt.Errorf("读取 %s 失败: %w", header.Filename, err)
+			}
+			path, remove, err := copyMultipartToTemp(f, header)
+			_ = f.Close()
+			if err != nil {
+				cleanup()
+				return nil, func() {}, err
+			}
+			uploads = append(uploads, webConfigFileUpload{
+				Store: storeKey,
+				Field: configField,
+				File: webUploadedFile{
+					Name: header.Filename,
+					Path: path,
+				},
+			})
+			paths = append(paths, path)
+			_ = remove
+		}
+	}
+
+	return uploads, cleanup, nil
+}
+
+func parseWebConfigUploadFieldName(name string) (string, string, bool) {
+	trimmed := strings.TrimPrefix(name, "store_file_")
+	parts := strings.SplitN(trimmed, "__", 2)
+	if len(parts) != 2 {
+		return "", "", false
+	}
+	storeKey := strings.TrimSpace(parts[0])
+	fieldKey := strings.TrimSpace(parts[1])
+	if storeKey == "" || fieldKey == "" {
+		return "", "", false
+	}
+	return storeKey, fieldKey, true
+}
+
+func applyWebConfigFileUploads(doc *webConfigDocument, uploads []webConfigFileUpload) error {
+	for _, upload := range uploads {
+		if !supportsWebConfigFileUpload(upload.Store, upload.Field) {
+			return fmt.Errorf("%s 暂不支持通过上传设置 %s", storeDisplayName(upload.Store), strings.ToUpper(upload.Field))
+		}
+		if doc.Stores[upload.Store] == nil {
+			doc.Stores[upload.Store] = map[string]string{}
+		}
+		doc.Stores[upload.Store][upload.Field] = webConfigUploadedFileTargetPath(upload.Store, upload.File.Name)
+	}
+	return nil
+}
+
+func persistWebConfigUploads(doc *webConfigDocument, uploads []webConfigFileUpload) error {
+	for _, upload := range uploads {
+		dest := filepath.Clean(filepath.Join(filepath.Dir(flagConfig), filepath.Base(webConfigUploadedFileTargetPath(upload.Store, upload.File.Name))))
+		if err := os.MkdirAll(filepath.Dir(dest), 0755); err != nil {
+			return err
+		}
+		if err := copyLocalFile(upload.File.Path, dest); err != nil {
+			return err
+		}
+		if doc.Stores[upload.Store] == nil {
+			doc.Stores[upload.Store] = map[string]string{}
+		}
+		doc.Stores[upload.Store][upload.Field] = "./config/" + filepath.Base(dest)
+	}
+	return nil
+}
+
+func supportsWebConfigFileUpload(storeKey, fieldKey string) bool {
+	for _, field := range webStoreFieldMetaMap[storeKey] {
+		if field.Key == fieldKey && field.File {
+			return true
+		}
+	}
+	return false
+}
+
+func webConfigUploadedFileTargetPath(storeKey, originalName string) string {
+	name := filepath.Base(strings.TrimSpace(originalName))
+	ext := strings.ToLower(filepath.Ext(name))
+	switch storeKey {
+	case "huawei":
+		if ext == "" {
+			ext = ".json"
+		}
+		return "./config/huawei" + ext
+	case "xiaomi":
+		if ext == "" {
+			ext = ".cer"
+		}
+		return "./config/xiaomi" + ext
+	default:
+		return "./config/" + name
+	}
+}
+
+func loadWebEditableConfig() (*webConfigDocument, error) {
+	doc := &webConfigDocument{
+		Hooks:         map[string]map[string]string{},
+		MarketAliases: map[string][]string{},
+		UI: webUIConfig{
+			ManualURLs: map[string]string{},
+		},
+		Stores: map[string]map[string]string{},
+	}
 	if flagCredsFrom != "" {
-		return cfg
+		return doc, nil
 	}
 	data, err := os.ReadFile(flagConfig)
 	if err != nil {
-		return cfg
+		if os.IsNotExist(err) {
+			return doc, nil
+		}
+		return nil, fmt.Errorf("read web config: %w", err)
 	}
-	var raw struct {
-		UI webUIConfig `json:"ui"`
-	}
+	var raw map[string]json.RawMessage
 	if err := json.Unmarshal(data, &raw); err != nil {
-		return cfg
+		return nil, fmt.Errorf("parse web config: %w", err)
 	}
-	cfg = raw.UI
-	if cfg.ManualURLs == nil {
-		cfg.ManualURLs = map[string]string{}
+
+	if v, ok := raw["hooks"]; ok {
+		var hooks map[string]string
+		if err := json.Unmarshal(v, &hooks); err == nil {
+			for k, value := range hooks {
+				doc.Hooks[k] = map[string]string{"command": value}
+			}
+		}
 	}
-	return cfg
+	if v, ok := raw["market_aliases"]; ok {
+		_ = json.Unmarshal(v, &doc.MarketAliases)
+	}
+	if v, ok := raw["ui"]; ok {
+		_ = json.Unmarshal(v, &doc.UI)
+		if doc.UI.ManualURLs == nil {
+			doc.UI.ManualURLs = map[string]string{}
+		}
+	}
+	if v, ok := raw["update_check"]; ok {
+		_ = json.Unmarshal(v, &doc.UpdateCheck)
+	}
+	for key, blob := range raw {
+		if _, reserved := map[string]bool{
+			"hooks": true, "market_aliases": true, "ui": true, "update_check": true, "stores": true,
+		}[key]; reserved {
+			continue
+		}
+		var values map[string]string
+		if err := json.Unmarshal(blob, &values); err == nil {
+			doc.Stores[key] = values
+		}
+	}
+	return doc, nil
+}
+
+func saveWebEditableConfig(doc *webConfigDocument) error {
+	out := map[string]any{}
+	if len(doc.Hooks) > 0 {
+		hooks := map[string]string{}
+		for key, values := range doc.Hooks {
+			if command := strings.TrimSpace(values["command"]); command != "" {
+				hooks[key] = command
+			}
+		}
+		if len(hooks) > 0 {
+			out["hooks"] = hooks
+		}
+	}
+	if len(doc.MarketAliases) > 0 {
+		out["market_aliases"] = doc.MarketAliases
+	}
+	if strings.TrimSpace(doc.UI.DefaultAuditPackage) != "" || len(doc.UI.ManualURLs) > 0 {
+		out["ui"] = doc.UI
+	}
+	if strings.TrimSpace(doc.UpdateCheck) != "" {
+		out["update_check"] = doc.UpdateCheck
+	}
+	for storeKey, rawValues := range doc.Stores {
+		values := map[string]string{}
+		for key, value := range rawValues {
+			if trimmed := strings.TrimSpace(value); trimmed != "" {
+				values[key] = trimmed
+			}
+		}
+		if len(values) > 0 {
+			out[storeKey] = values
+		}
+	}
+	data, err := json.MarshalIndent(out, "", "  ")
+	if err != nil {
+		return err
+	}
+	data = append(data, '\n')
+	return os.WriteFile(flagConfig, data, 0644)
+}
+
+func loadWebUIConfig() webUIConfig {
+	doc, err := loadWebEditableConfig()
+	if err != nil {
+		return webUIConfig{ManualURLs: map[string]string{}}
+	}
+	return doc.UI
+}
+
+func extractFeishuWebhook(command string) string {
+	command = strings.TrimSpace(command)
+	if command == "" {
+		return ""
+	}
+	const marker = "--webhook"
+	idx := strings.Index(command, marker)
+	if idx < 0 {
+		return ""
+	}
+	raw := strings.TrimSpace(command[idx+len(marker):])
+	if raw == "" {
+		return ""
+	}
+	if strings.HasPrefix(raw, "'") {
+		if end := strings.Index(raw[1:], "'"); end >= 0 {
+			return raw[1 : end+1]
+		}
+	}
+	if strings.HasPrefix(raw, "\"") {
+		if end := strings.Index(raw[1:], "\""); end >= 0 {
+			return raw[1 : end+1]
+		}
+	}
+	fields := strings.Fields(raw)
+	if len(fields) == 0 {
+		return ""
+	}
+	return fields[0]
 }
 
 func loadWebFeishuWebhook() (string, error) {
@@ -547,6 +1055,171 @@ func loadWebFeishuWebhook() (string, error) {
 		return "", fmt.Errorf("飞书 webhook 为空")
 	}
 	return fields[0], nil
+}
+
+func buildWebConfigListItems(doc *webConfigDocument) []webConfigListItem {
+	items := make([]webConfigListItem, 0, len(webConfigSections)+len(doc.MarketAliases))
+	storeItems := make([]webConfigListItem, 0, len(webStoreFieldMetaMap))
+	for _, section := range buildWebConfigSections() {
+		switch section.Key {
+		case "hooks":
+			webhook := extractFeishuWebhook(doc.Hooks["after"]["command"])
+			items = append(items, webConfigListItem{
+				GroupKey:    "hooks",
+				Key:         "feishu",
+				DisplayName: "飞书",
+				Summary:     ternarySummary(webhook != "", "已配置", "未配置"),
+				Configured:  webhook != "",
+				SectionKey:  section.Key,
+				EditLabel:   "编辑",
+			})
+		case "ui":
+			configured := strings.TrimSpace(doc.UI.DefaultAuditPackage) != ""
+			items = append(items, webConfigListItem{
+				GroupKey:    "ui",
+				Key:         "default_audit_package",
+				DisplayName: "包名",
+				Summary:     ternarySummary(configured, doc.UI.DefaultAuditPackage, "未配置"),
+				Configured:  configured,
+				SectionKey:  section.Key,
+				EditLabel:   "编辑",
+			})
+		default:
+			configured := hasConfiguredValues(doc.Stores[section.Key])
+			storeItems = append(storeItems, webConfigListItem{
+				GroupKey:    "stores",
+				Key:         section.Key,
+				DisplayName: storeDisplayName(section.Key),
+				Subtitle:    section.Key,
+				Summary:     ternarySummary(configured, "已配置", "未配置"),
+				Configured:  configured,
+				SectionKey:  section.Key,
+				EditLabel:   "编辑",
+			})
+		}
+	}
+	slices.SortFunc(storeItems, func(a, b webConfigListItem) int {
+		if a.Configured != b.Configured {
+			if a.Configured {
+				return -1
+			}
+			return 1
+		}
+		return strings.Compare(a.DisplayName, b.DisplayName)
+	})
+	items = append(items, storeItems...)
+
+	aliases := doc.MarketAliases
+	if len(aliases) == 0 {
+		aliases = config.DefaultMarketAliases()
+	}
+	var aliasKeys []string
+	for key := range aliases {
+		aliasKeys = append(aliasKeys, key)
+	}
+	slices.Sort(aliasKeys)
+	for _, key := range aliasKeys {
+		parts := aliases[key]
+		if len(parts) == 0 {
+			parts = []string{key}
+		}
+		items = append(items, webConfigListItem{
+			GroupKey:    "aliases",
+			Key:         key,
+			DisplayName: storeDisplayName(key),
+			Subtitle:    key,
+			Summary:     strings.Join(parts, "/"),
+			Configured:  len(aliases[key]) > 0,
+			SectionKey:  key,
+			EditLabel:   "编辑",
+		})
+	}
+	return items
+}
+
+func ternarySummary(ok bool, yes, no string) string {
+	if ok {
+		return yes
+	}
+	return no
+}
+
+func firstNonEmpty(values ...string) string {
+	for _, value := range values {
+		if strings.TrimSpace(value) != "" {
+			return value
+		}
+	}
+	return ""
+}
+
+func validateWebStoreSection(ctx context.Context, sectionKey string, values map[string]string, ui webUIConfig) error {
+	sectionKey = strings.TrimSpace(sectionKey)
+	if sectionKey == "" {
+		return fmt.Errorf("缺少要校验的市场")
+	}
+	clean := map[string]string{}
+	for k, v := range values {
+		if trimmed := strings.TrimSpace(v); trimmed != "" {
+			clean[k] = trimmed
+		}
+	}
+	if len(clean) == 0 {
+		return fmt.Errorf("%s 配置为空", storeDisplayName(sectionKey))
+	}
+
+	cfg := &config.Config{
+		Stores: map[string]map[string]string{
+			sectionKey: clean,
+		},
+	}
+
+	result, err := apkgo.Diagnose(ctx, apkgo.DiagnoseJob{
+		Config:  cfg,
+		Stores:  []string{sectionKey},
+		Package: strings.TrimSpace(ui.DefaultAuditPackage),
+	})
+	if err == nil && result != nil && len(result.Stores) > 0 {
+		report := result.Stores[0]
+		if !report.Supported {
+			_, createErr := store.Create(sectionKey, cloneStringMap(clean))
+			if createErr != nil {
+				return fmt.Errorf("%s 校验失败：%v", storeDisplayName(sectionKey), createErr)
+			}
+			return nil
+		}
+		var failed []string
+		for _, probe := range report.Probes {
+			if probe.Status == "fail" {
+				msg := strings.TrimSpace(probe.Error)
+				if msg == "" {
+					msg = strings.TrimSpace(probe.Detail)
+				}
+				if msg == "" {
+					msg = probe.Name
+				}
+				failed = append(failed, msg)
+			}
+		}
+		if len(failed) > 0 {
+			return fmt.Errorf("%s 校验失败：%s", storeDisplayName(sectionKey), strings.Join(failed, "；"))
+		}
+		return nil
+	}
+
+	_, createErr := store.Create(sectionKey, cloneStringMap(clean))
+	if createErr != nil {
+		return fmt.Errorf("%s 校验失败：%v", storeDisplayName(sectionKey), createErr)
+	}
+	return nil
+}
+
+func cloneStringMap(in map[string]string) map[string]string {
+	out := make(map[string]string, len(in))
+	for k, v := range in {
+		out[k] = v
+	}
+	return out
 }
 
 func buildFeishuAuditCard(report *apkgo.AuditReport) map[string]any {

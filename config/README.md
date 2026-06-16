@@ -17,6 +17,8 @@ apkgo web
 apkgo upload -f app.apk
 ```
 
+Web `Config` 页面会直接维护这份文件。保存成功后，Web 发布、审核查询等流程会重新读取 `config/config.json`，并以其中的最新值为准。
+
 ## 顶层字段
 
 ### `hooks`
@@ -188,6 +190,12 @@ apkgo upload -f app.apk
 - `service_account_file`
   华为服务账号 JSON 文件路径。
 
+Web 页面说明：
+
+- `Config` 页面可直接上传华为服务账号 JSON。
+- 校验通过后，文件会备份到 `config/huawei.json`。
+- `config/config.json` 中会写入 `./config/huawei.json`。
+
 关联文件：
 
 - [config/huawei.json](/Users/wangwei/Documents/go/apkgo/config/huawei.json)
@@ -258,6 +266,12 @@ apkgo upload -f app.apk
   小米上传接口使用的私钥。
 - `cert_file`
   小米公钥证书文件路径。
+
+Web 页面说明：
+
+- `Config` 页面可直接上传小米公钥证书文件。
+- 校验通过后，文件会备份到 `config/xiaomi.cer`。
+- `config/config.json` 中会写入 `./config/xiaomi.cer`。
 
 关联文件：
 

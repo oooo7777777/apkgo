@@ -53,7 +53,21 @@ go run . web
 - 根据 `market_aliases` 文件名规则自动识别市场
 - 单个 APK 未命中别名时，展示所有已配置市场供手动选择
 - 仅展示已配置凭证的市场
-- 支持发布任务、审核查询、发布记录查看与删除
+- 支持发布任务、审核查询、配置维护、发布记录查看与删除
+
+Web 页面说明：
+
+- 首页：上传与发布入口
+- `Config`：维护 `config/config.json` 中的发布配置
+- `审核查询`：查看各市场审核状态
+- `发布记录`：查看与删除本地历史记录
+
+`Config` 页面当前行为：
+
+- 直接保存到 `config/config.json`
+- 保存成功后，后续 Web 发布与审核查询会重新读取该文件
+- 华为 `service_account_file` 与小米 `cert_file` 在页面中使用文件上传
+- 上传校验通过后，文件会备份到 `config/` 目录，并以该目录中的文件路径写回配置
 
 
 
@@ -137,6 +151,8 @@ apkgo history
 cp config/config.example.json config/config.json
 ```
 
+也可以直接通过 Web 的 `Config` 页面维护该文件，无需手工编辑 JSON。
+
 详细字段说明直接看：
 
 - [config/README.md](/Users/wangwei/Documents/go/apkgo/config/README.md)
@@ -176,6 +192,13 @@ cp config/config.example.json config/config.json
   }
 }
 ```
+
+文件类字段说明：
+
+- `huawei.service_account_file`
+  推荐通过 Web `Config` 页面上传服务账号 JSON。校验通过后，文件会保存为 `config/huawei.json`，并写入 `config/config.json`。
+- `xiaomi.cert_file`
+  推荐通过 Web `Config` 页面上传小米公钥证书。校验通过后，文件会保存为 `config/xiaomi.cer`，并写入 `config/config.json`。
 
 如果你想逐字段看“这个 key 是干什么的、什么时候必填、应该填什么值”，请直接看 [config/README.md](/Users/wangwei/Documents/go/apkgo/config/README.md)。
 
@@ -259,6 +282,8 @@ stores:
 
 旧版 `client_id` + `client_secret` 仍兼容，但华为已不推荐。
 
+如果使用 Web `Config` 页面，直接上传服务账号 JSON 文件即可。校验通过后，文件会保存到 `config/huawei.json`，配置项写为 `./config/huawei.json`。
+
 ```bash
 apkgo doctor -s huawei -p com.example.app
 ```
@@ -285,6 +310,8 @@ apkgo doctor -s xiaomi -p com.example.app
 ```
 
 > ⚠️ apkgo v3.0 之前内置了一份公钥证书，但那份 **2023-05 已过期**（且来源不明），从 v3.0 起必须自己提供。
+
+如果使用 Web `Config` 页面，直接上传 `.cer` 证书文件即可。校验通过后，文件会保存到 `config/xiaomi.cer`，配置项写为 `./config/xiaomi.cer`。
 
 #### OPPO 开放平台
 
