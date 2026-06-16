@@ -25,16 +25,18 @@ type HookConfig struct {
 
 // Config is the top-level runtime configuration.
 type Config struct {
-	Hooks       HookConfig                   `yaml:"hooks,omitempty" json:"hooks,omitempty"`
-	Stores      map[string]map[string]string `yaml:"stores" json:"stores"`
-	UpdateCheck string                       `yaml:"update_check,omitempty" json:"update_check,omitempty"` // e.g. "30d", "7d", "0" to disable
+	Hooks         HookConfig                   `yaml:"hooks,omitempty" json:"hooks,omitempty"`
+	MarketAliases map[string][]string          `yaml:"market_aliases,omitempty" json:"market_aliases,omitempty"`
+	Stores        map[string]map[string]string `yaml:"stores" json:"stores"`
+	UpdateCheck   string                       `yaml:"update_check,omitempty" json:"update_check,omitempty"` // e.g. "30d", "7d", "0" to disable
 }
 
 var reservedJSONConfigKeys = map[string]struct{}{
-	"hooks":        {},
-	"ui":           {},
-	"update_check": {},
-	"stores":       {},
+	"hooks":          {},
+	"market_aliases": {},
+	"ui":             {},
+	"update_check":   {},
+	"stores":         {},
 }
 
 // StoreWithHooks pairs a store instance with its per-store hook
@@ -111,6 +113,13 @@ func loadJSONKeys(path string) (*Config, error) {
 		}
 		delete(raw, "hooks")
 	}
+	marketAliases := map[string][]string{}
+	if v, ok := raw["market_aliases"]; ok {
+		if err := json.Unmarshal(v, &marketAliases); err != nil {
+			return nil, fmt.Errorf("parse market_aliases in %s: %w", path, err)
+		}
+		delete(raw, "market_aliases")
+	}
 	stores := map[string]map[string]string{}
 	for name, blob := range raw {
 		if _, skip := reservedJSONConfigKeys[name]; skip {
@@ -137,7 +146,11 @@ func loadJSONKeys(path string) (*Config, error) {
 	if len(filtered) == 0 {
 		return nil, fmt.Errorf("no stores configured in %s", path)
 	}
-	return &Config{Hooks: hooks, Stores: filtered}, nil
+	return &Config{
+		Hooks:         hooks,
+		MarketAliases: normalizeMarketAliases(marketAliases),
+		Stores:        filtered,
+	}, nil
 }
 
 // LoadFromJSON parses a JSON-encoded config blob from r. Used by the

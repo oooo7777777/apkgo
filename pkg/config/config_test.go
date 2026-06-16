@@ -38,6 +38,9 @@ func TestLoad_ConfigJSONPath(t *testing.T) {
 	}
 	body := `{
 		"hooks": {"after": "echo ok"},
+		"market_aliases": {
+			"xiaomi": ["xiaomi", "xm"]
+		},
 		"ui": {"default_audit_package": "com.example.app"},
 		"pgyer": {"api_key": "k1"},
 		"xiaomi": {"email": "demo@example.com", "private_key": "k2"}
@@ -55,6 +58,9 @@ func TestLoad_ConfigJSONPath(t *testing.T) {
 	}
 	if got := cfg.Stores["xiaomi"]["private_key"]; got != "k2" {
 		t.Fatalf("xiaomi private_key = %q, want k2", got)
+	}
+	if got := cfg.MarketAliases["xiaomi"]; len(got) != 2 || got[0] != "xiaomi" || got[1] != "xm" {
+		t.Fatalf("xiaomi market_aliases = %#v, want [xiaomi xm]", got)
 	}
 	if _, ok := cfg.Stores["ui"]; ok {
 		t.Fatalf("ui should not be parsed as a store")

@@ -10,6 +10,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/KevinGong2013/apkgo/v3/pkg/config"
 	"github.com/KevinGong2013/apkgo/v3/pkg/store"
 )
 
@@ -70,6 +71,7 @@ func buildInitConfig(path string, schemas []store.ConfigSchema, wanted map[strin
 			"hooks": map[string]string{
 				"after": "",
 			},
+			"market_aliases": config.DefaultMarketAliases(),
 			"ui": map[string]any{
 				"default_audit_package": "com.example.app",
 				"manual_urls": map[string]string{

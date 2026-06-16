@@ -877,6 +877,7 @@ const webIndexHTML = `<!doctype html>
         <div class="hero-bar">
           <h1>APKGO</h1>
           <div class="hero-actions">
+            <a class="hero-link" href="/doctor">环境检测</a>
             <a class="hero-link" href="/history">发布记录</a>
             <a class="hero-link" href="/audit">审核查询</a>
           </div>
@@ -1027,6 +1028,7 @@ const webIndexHTML = `<!doctype html>
 	    let selectedStores = new Set();
 	    let pendingSubmit = null;
       let marketStreams = new Map();
+      let currentSelectionMode = 'auto';
 
     function setStatus(id, message, kind) {
       const el = document.getElementById(id);
@@ -1117,7 +1119,7 @@ const webIndexHTML = `<!doctype html>
           '<input class="market-check" type="checkbox" ' + (item.configured ? '' : 'disabled') + (checked ? ' checked' : '') + '>' +
           '<div class="market-title">' + escapeHtml(item.display_name || item.store) + '</div>' +
           '<div class="market-meta">市场：' + escapeHtml(item.store) + '</div>' +
-          '<div class="market-meta">渠道：' + escapeHtml(item.channel) + '</div>';
+          '<div class="market-meta">渠道：' + escapeHtml(item.channel || '手动选择') + '</div>';
         const input = card.querySelector('input');
         input.addEventListener('change', () => toggleStore(item.store, input.checked));
         list.appendChild(card);
@@ -1128,6 +1130,7 @@ const webIndexHTML = `<!doctype html>
       detectedArtifacts = [];
       inspectedUploadKey = null;
       selectedStores = new Set();
+      currentSelectionMode = 'auto';
       document.getElementById('market-field').classList.add('hidden');
       document.getElementById('market-list').innerHTML = '';
       document.getElementById('upload-btn').disabled = true;
@@ -1570,12 +1573,21 @@ const webIndexHTML = `<!doctype html>
         return;
       }
       detectedArtifacts = data.upload?.artifacts || [];
+      currentSelectionMode = data.upload?.selection_mode || 'auto';
       inspectedUploadKey = buildUploadKey(files);
-      selectedStores = new Set(detectedArtifacts.filter(item => item.configured).map(item => item.store));
+      if (currentSelectionMode === 'manual') {
+        selectedStores = new Set();
+      } else {
+        selectedStores = new Set(detectedArtifacts.filter(item => item.configured).map(item => item.store));
+      }
       renderMarkets(detectedArtifacts);
       syncTaskCardsFromSelection();
       updateSubmitState();
-      setStatus('upload-status', '', 'ok');
+      if (currentSelectionMode === 'manual') {
+        setStatus('upload-status', '未匹配到市场别名，已展示所有已配置市场，请手动选择。', 'bad');
+      } else {
+        setStatus('upload-status', '', 'ok');
+      }
     }
 
 	    document.getElementById('archive').addEventListener('change', async (event) => {
@@ -1656,6 +1668,561 @@ const webIndexHTML = `<!doctype html>
     syncPublishTimeMin();
     syncPublishModeUI();
     resetLogs();
+  </script>
+</body>
+</html>
+`
+
+const webDoctorHTML = `<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>apkgo Doctor</title>
+  <style>
+    :root {
+      --bg: #090b10;
+      --panel: rgba(14,18,25,0.88);
+      --line: rgba(130,164,255,0.14);
+      --line-strong: rgba(130,164,255,0.28);
+      --text: #edf3ff;
+      --muted: #8d9ab3;
+      --accent: #4de2c5;
+      --ok: #46d39a;
+      --warn: #ffb454;
+      --bad: #ff6b7a;
+      --info: #91b8ff;
+      --shadow: 0 28px 80px rgba(0,0,0,0.45);
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      min-height: 100vh;
+      color: var(--text);
+      font-family: "SF Mono", "JetBrains Mono", "IBM Plex Sans", "PingFang SC", "Microsoft YaHei", monospace, sans-serif;
+      background:
+        radial-gradient(circle at 12% 10%, rgba(77,226,197,0.12), transparent 22%),
+        radial-gradient(circle at 88% 14%, rgba(106,169,255,0.12), transparent 20%),
+        linear-gradient(180deg, #07090d 0%, var(--bg) 100%);
+    }
+    .shell {
+      max-width: 1200px;
+      margin: 0 auto;
+      padding: 28px 20px 52px;
+    }
+    .hero, .panel {
+      background: var(--panel);
+      border: 1px solid var(--line);
+      box-shadow: var(--shadow);
+    }
+    .hero {
+      position: relative;
+      overflow: hidden;
+      padding: 22px 24px;
+      border-radius: 32px;
+      margin-bottom: 20px;
+      background:
+        linear-gradient(135deg, rgba(18,24,34,0.96), rgba(10,14,20,0.94)),
+        linear-gradient(180deg, rgba(77,226,197,0.05), rgba(106,169,255,0.04));
+      border-color: var(--line-strong);
+    }
+    .hero::after {
+      content: "";
+      position: absolute;
+      inset: -1px;
+      border-radius: inherit;
+      padding: 1px;
+      background: linear-gradient(135deg, rgba(77,226,197,0.3), rgba(106,169,255,0.18), rgba(141,107,255,0.2));
+      -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+      -webkit-mask-composite: xor;
+      mask-composite: exclude;
+      pointer-events: none;
+    }
+    .hero-top {
+      display: grid;
+      gap: 16px;
+      position: relative;
+      z-index: 1;
+    }
+    .hero-bar {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 16px;
+    }
+    .hero-link {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 44px;
+      padding: 0 18px;
+      border-radius: 999px;
+      border: 1px solid rgba(255,255,255,0.08);
+      background: rgba(255,255,255,0.05);
+      color: var(--text);
+      text-decoration: none;
+      font-size: 12px;
+      font-weight: 800;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      transition: transform .16s ease, border-color .16s ease, background .16s ease;
+    }
+    .hero-link:hover {
+      transform: translateY(-1px);
+      border-color: rgba(77,226,197,0.28);
+      background: rgba(77,226,197,0.08);
+    }
+    h1 {
+      margin: 0;
+      font-size: clamp(34px, 6vw, 58px);
+      line-height: 0.94;
+      letter-spacing: -0.06em;
+    }
+    .hero-desc {
+      max-width: 760px;
+      color: var(--muted);
+      font-size: 14px;
+      line-height: 1.8;
+    }
+    .hero-side {
+      display: grid;
+      gap: 12px;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+    }
+    .hero-stat {
+      padding: 12px 14px;
+      border-radius: 18px;
+      background: rgba(255,255,255,0.03);
+      border: 1px solid rgba(255,255,255,0.06);
+      backdrop-filter: blur(12px);
+    }
+    .hero-stat strong {
+      display: block;
+      color: var(--muted);
+      font-size: 11px;
+      font-weight: 800;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      margin-bottom: 8px;
+    }
+    .hero-stat span {
+      font-size: 13px;
+      line-height: 1.5;
+      color: var(--text);
+    }
+    .panel {
+      border-radius: 28px;
+      overflow: hidden;
+    }
+    .panel-head {
+      padding: 18px 22px 14px;
+      border-bottom: 1px solid rgba(255,255,255,0.05);
+      background: linear-gradient(180deg, rgba(255,255,255,0.02), rgba(255,255,255,0));
+    }
+    .panel-kicker {
+      color: var(--accent);
+      font-size: 11px;
+      font-weight: 800;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      margin-bottom: 10px;
+    }
+    .head-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 14px;
+      flex-wrap: wrap;
+    }
+    .head-actions {
+      display: flex;
+      gap: 12px;
+      flex-wrap: wrap;
+    }
+    .panel h2 {
+      margin: 0;
+      font-size: 24px;
+      letter-spacing: -0.04em;
+    }
+    .panel-body {
+      padding: 22px;
+      display: grid;
+      gap: 16px;
+    }
+    .field {
+      display: grid;
+      gap: 8px;
+    }
+    label.small {
+      font-size: 12px;
+      color: var(--muted);
+      font-weight: 700;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+    }
+    input {
+      width: 100%;
+      border: 1px solid rgba(130,164,255,0.14);
+      border-radius: 16px;
+      background: rgba(8,12,18,0.9);
+      padding: 14px 15px;
+      font: inherit;
+      color: var(--text);
+      transition: border-color .18s ease, box-shadow .18s ease;
+    }
+    input:focus {
+      outline: none;
+      border-color: rgba(77,226,197,0.45);
+      box-shadow: 0 0 0 4px rgba(77,226,197,0.1);
+    }
+    button {
+      border: 0;
+      border-radius: 999px;
+      padding: 15px 26px;
+      min-width: 180px;
+      font: inherit;
+      font-weight: 800;
+      cursor: pointer;
+      transition: transform .16s ease, opacity .16s ease, box-shadow .16s ease, background .16s ease;
+    }
+    button:hover { transform: translateY(-1px); }
+    button:disabled { opacity: .45; cursor: wait; transform: none; }
+    .primary-btn {
+      color: #051014;
+      background: linear-gradient(135deg, var(--accent), #8bf6df);
+      box-shadow: 0 16px 34px rgba(77,226,197,0.18);
+    }
+    .status {
+      padding: 12px 14px;
+      border-radius: 16px;
+      display: none;
+      font-size: 14px;
+      line-height: 1.6;
+    }
+    .status.show { display: block; }
+    .status.ok {
+      background: rgba(70,211,154,0.12);
+      color: var(--ok);
+      border: 1px solid rgba(70,211,154,0.14);
+    }
+    .status.bad {
+      background: rgba(255,107,122,0.1);
+      color: var(--bad);
+      border: 1px solid rgba(255,107,122,0.14);
+    }
+    .status.info {
+      background: rgba(145,184,255,0.1);
+      color: var(--info);
+      border: 1px solid rgba(145,184,255,0.14);
+    }
+    .doctor-results {
+      display: grid;
+      gap: 14px;
+    }
+    .doctor-card {
+      border: 1px solid rgba(130,164,255,0.14);
+      border-radius: 22px;
+      padding: 16px 18px;
+      background: rgba(255,255,255,0.03);
+    }
+    .doctor-card.ok { border-color: rgba(70,211,154,0.24); }
+    .doctor-card.warn { border-color: rgba(255,180,84,0.24); }
+    .doctor-card.bad { border-color: rgba(255,107,122,0.24); }
+    .doctor-card.info { border-color: rgba(145,184,255,0.24); }
+    .doctor-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      margin-bottom: 12px;
+    }
+    .doctor-store {
+      font-size: 18px;
+      font-weight: 800;
+    }
+    .doctor-probes {
+      display: grid;
+      gap: 10px;
+    }
+    .doctor-probe {
+      border-radius: 16px;
+      padding: 12px 14px;
+      background: rgba(8,12,18,0.76);
+      border: 1px solid rgba(255,255,255,0.04);
+    }
+    .doctor-probe-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      margin-bottom: 6px;
+    }
+    .doctor-probe-name {
+      font-size: 13px;
+      font-weight: 800;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+    }
+    .doctor-probe-detail {
+      color: var(--muted);
+      font-size: 13px;
+      line-height: 1.7;
+      word-break: break-word;
+    }
+    .result-json {
+      margin: 0;
+      padding: 18px;
+      border-radius: 20px;
+      background: rgba(6,10,16,0.96);
+      border: 1px solid rgba(255,255,255,0.06);
+      color: #d8f1eb;
+      min-height: 180px;
+      overflow: auto;
+      display: none;
+      white-space: pre-wrap;
+      word-break: break-word;
+    }
+    .result-json.show {
+      display: block;
+    }
+    .badge {
+      border-radius: 999px;
+      padding: 5px 9px;
+      font-size: 11px;
+      font-weight: 800;
+      line-height: 1;
+      letter-spacing: 0.02em;
+    }
+    .badge.ok {
+      background: rgba(70,211,154,0.14);
+      color: var(--ok);
+    }
+    .badge.warn {
+      background: rgba(255,180,84,0.14);
+      color: var(--warn);
+    }
+    .badge.bad {
+      background: rgba(255,107,122,0.14);
+      color: var(--bad);
+    }
+    .badge.info {
+      background: rgba(145,184,255,0.14);
+      color: var(--info);
+    }
+    @media (max-width: 980px) {
+      .hero-side {
+        grid-template-columns: 1fr;
+      }
+      button {
+        width: 100%;
+        min-width: 0;
+      }
+    }
+    @media (max-width: 640px) {
+      .shell {
+        padding: 20px 14px 40px;
+      }
+      .hero, .panel-head, .panel-body {
+        padding-left: 18px;
+        padding-right: 18px;
+      }
+      .hero-bar {
+        flex-direction: column;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="shell">
+    <section class="hero">
+      <div class="hero-top">
+        <div class="hero-bar">
+          <h1>Doctor</h1>
+          <a class="hero-link" href="/">返回发布页</a>
+        </div>
+        <div class="hero-desc">环境检测用于确认各市场的凭证、权限和应用绑定状态。该页面不会执行上传，仅发起诊断探测请求。</div>
+        <div class="hero-side">
+          <div class="hero-stat">
+            <strong>Default Package</strong>
+            <span id="doctor-default-package">读取中...</span>
+          </div>
+          <div class="hero-stat">
+            <strong>Scope</strong>
+            <span>所有已配置市场</span>
+          </div>
+          <div class="hero-stat">
+            <strong>Checks</strong>
+            <span>凭证可用性 / 权限状态 / 应用绑定</span>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="panel">
+      <div class="panel-head">
+        <div class="panel-kicker">doctor flow</div>
+        <div class="head-row">
+          <h2>环境检测</h2>
+          <div class="head-actions">
+            <button type="button" id="doctor-btn" class="primary-btn">开始检测</button>
+          </div>
+        </div>
+      </div>
+      <div class="panel-body">
+        <div id="doctor-status" class="status"></div>
+        <div id="doctor-results" class="doctor-results"></div>
+        <pre id="doctor-json" class="result-json"></pre>
+      </div>
+    </section>
+  </div>
+
+  <script>
+    let defaultDoctorPackage = '';
+
+    function escapeHtml(value) {
+      return String(value || '')
+        .replaceAll('&', '&amp;')
+        .replaceAll('<', '&lt;')
+        .replaceAll('>', '&gt;')
+        .replaceAll('"', '&quot;')
+        .replaceAll("'", '&#39;');
+    }
+
+    function setStatus(message, kind) {
+      const el = document.getElementById('doctor-status');
+      if (!message) {
+        el.textContent = '';
+        el.className = 'status';
+        return;
+      }
+      el.textContent = message;
+      el.className = 'status show ' + kind;
+    }
+
+    function storeName(store) {
+      const named = {
+        huawei: '华为',
+        xiaomi: '小米',
+        oppo: 'OPPO',
+        vivo: 'vivo',
+        honor: '荣耀',
+        tencent: '应用宝',
+        samsung: 'Samsung',
+        googleplay: 'Google Play',
+        pgyer: '蒲公英',
+        fir: 'fir.im',
+        script: 'Script',
+      };
+      return named[store] || store;
+    }
+
+    function probeMeta(probe) {
+      switch (probe.status) {
+        case 'ok': return { label: '通过', badge: 'ok' };
+        case 'skip': return { label: '跳过', badge: 'info' };
+        case 'fail': return { label: '失败', badge: 'bad' };
+        default: return { label: '未知', badge: 'warn' };
+      }
+    }
+
+    function reportMeta(report) {
+      if (!report.supported) return { label: '未接入', badge: 'info', card: 'info', rank: 90 };
+      const probes = report.probes || [];
+      if (probes.some(item => item.status === 'fail')) return { label: '异常', badge: 'bad', card: 'bad', rank: 10 };
+      if (probes.some(item => item.status === 'skip')) return { label: '部分完成', badge: 'warn', card: 'warn', rank: 20 };
+      return { label: '可用', badge: 'ok', card: 'ok', rank: 30 };
+    }
+
+    function renderDoctorResults(data) {
+      const root = document.getElementById('doctor-results');
+      const json = document.getElementById('doctor-json');
+      root.innerHTML = '';
+      const stores = [...(data.stores || [])].sort((a, b) => {
+        const rankDiff = reportMeta(a).rank - reportMeta(b).rank;
+        if (rankDiff !== 0) return rankDiff;
+        return storeName(a.store).localeCompare(storeName(b.store), 'zh-CN');
+      });
+      for (const item of stores) {
+        const meta = reportMeta(item);
+        const card = document.createElement('article');
+        card.className = 'doctor-card ' + meta.card;
+        const probes = (item.probes || []).map((probe) => {
+          const pMeta = probeMeta(probe);
+          const detail = probe.error || probe.detail || '无附加信息';
+          const verbose = probe.verbose_detail ? '<div class="doctor-probe-detail">' + escapeHtml(probe.verbose_detail) + '</div>' : '';
+          return (
+            '<div class="doctor-probe">' +
+              '<div class="doctor-probe-head">' +
+                '<div class="doctor-probe-name">' + escapeHtml(probe.name || '-') + '</div>' +
+                '<span class="badge ' + pMeta.badge + '">' + escapeHtml(pMeta.label) + '</span>' +
+              '</div>' +
+              '<div class="doctor-probe-detail">' + escapeHtml(detail) + '</div>' +
+              verbose +
+            '</div>'
+          );
+        }).join('');
+        card.innerHTML =
+          '<div class="doctor-head">' +
+            '<div class="doctor-store">' + escapeHtml(storeName(item.store)) + '</div>' +
+            '<span class="badge ' + meta.badge + '">' + escapeHtml(meta.label) + '</span>' +
+          '</div>' +
+          (item.supported
+            ? '<div class="doctor-probes">' + probes + '</div>'
+            : '<div class="doctor-probe-detail">该市场当前未接入 doctor 检测能力。</div>');
+        root.appendChild(card);
+      }
+      json.textContent = JSON.stringify(data, null, 2);
+      json.className = 'result-json show';
+    }
+
+    async function loadConfig() {
+      const resp = await fetch('/api/config');
+      const data = await resp.json();
+      defaultDoctorPackage = data?.ui?.default_audit_package || '';
+      document.getElementById('doctor-default-package').textContent = defaultDoctorPackage || '未配置';
+    }
+
+    async function runDoctor() {
+      const btn = document.getElementById('doctor-btn');
+      btn.disabled = true;
+      setStatus('正在检测已配置市场的凭证与权限...', 'info');
+      try {
+        const fd = new FormData();
+        if (defaultDoctorPackage) fd.append('package', defaultDoctorPackage);
+        const resp = await fetch('/api/doctor', { method: 'POST', body: fd });
+        const data = await resp.json();
+        if (!resp.ok) {
+          setStatus(data.error || '检测失败', 'bad');
+          return;
+        }
+        renderDoctorResults(data);
+        const stores = data.stores || [];
+        const failed = stores.filter(item => reportMeta(item).badge === 'bad').length;
+        const partial = stores.filter(item => reportMeta(item).badge === 'warn').length;
+        const ready = stores.filter(item => reportMeta(item).badge === 'ok').length;
+        if (failed > 0) {
+          setStatus('检测完成，' + ready + ' 个市场可用，' + partial + ' 个部分完成，' + failed + ' 个异常。', 'bad');
+        } else if (partial > 0) {
+          setStatus('检测完成，' + ready + ' 个市场可用，' + partial + ' 个检查需要补充包名或 APK。', 'info');
+        } else {
+          setStatus('检测完成，全部市场可用。', 'ok');
+        }
+      } catch (err) {
+        setStatus('检测失败：' + String(err), 'bad');
+      } finally {
+        btn.disabled = false;
+      }
+    }
+
+    document.getElementById('doctor-btn').addEventListener('click', runDoctor);
+
+    loadConfig()
+      .then(() => runDoctor())
+      .catch((err) => {
+        const msg = '读取配置失败：' + String(err);
+        document.getElementById('doctor-default-package').textContent = msg;
+        setStatus(msg, 'bad');
+      });
   </script>
 </body>
 </html>
@@ -2800,6 +3367,14 @@ const webHistoryDetailHTML = `<!doctype html>
       border-radius: 18px;
       padding: 16px;
     }
+    .notes-box {
+      margin-top: 18px;
+      padding-top: 20px;
+      padding-bottom: 20px;
+    }
+    .store-table {
+      margin-top: 22px;
+    }
     .detail-head {
       display: flex;
       align-items: flex-start;
@@ -2852,10 +3427,11 @@ const webHistoryDetailHTML = `<!doctype html>
       word-break: break-word;
     }
     .section-label {
-      margin-bottom: 10px;
+      margin-bottom: 14px;
     }
     .notes-text {
       font-size: 13px;
+      line-height: 1.9;
       white-space: pre-wrap;
       word-break: break-word;
     }

@@ -2,6 +2,19 @@
   "hooks": {
     "after": "go run . notify feishu --webhook 'https://open.feishu.cn/open-apis/bot/v2/hook/your-webhook'"
   },
+  "market_aliases": {
+    "fir": ["fir"],
+    "googleplay": ["googleplay"],
+    "honor": ["honor"],
+    "huawei": ["huawei"],
+    "oppo": ["oppo"],
+    "pgyer": ["pgyer", "merit"],
+    "samsung": ["samsung"],
+    "script": ["script"],
+    "tencent": ["tencent", "qq"],
+    "vivo": ["vivo"],
+    "xiaomi": ["xiaomi", "xm"]
+  },
   "ui": {
     "default_audit_package": "com.example.app",
     "manual_urls": {

@@ -50,7 +50,8 @@ go run . web
 - 支持上传 `1 个 zip` 或 `1..n 个 apk`
 - zip 与 apk 不能混传
 - zip 内会递归扫描所有层级目录中的 `.apk`
-- 根据文件名规则识别市场
+- 根据 `market_aliases` 文件名规则自动识别市场
+- 单个 APK 未命中别名时，展示所有已配置市场供手动选择
 - 仅展示已配置凭证的市场
 - 支持发布任务、审核查询、发布记录查看与删除
 
@@ -126,6 +127,7 @@ apkgo history
 
 - `config/config.json`
 - `config/config.example.json`
+- `config/README.md`
 - `config/huawei.json`
 - `config/xiaomi.cer`
 
@@ -134,6 +136,10 @@ apkgo history
 ```bash
 cp config/config.example.json config/config.json
 ```
+
+详细字段说明直接看：
+
+- [config/README.md](/Users/wangwei/Documents/go/apkgo/config/README.md)
 
 配置解析顺序：
 
@@ -148,6 +154,11 @@ cp config/config.example.json config/config.json
 {
   "hooks": {
     "after": "go run . notify feishu --webhook 'https://open.feishu.cn/open-apis/bot/v2/hook/your-webhook'"
+  },
+  "market_aliases": {
+    "tencent": ["tencent", "qq"],
+    "pgyer": ["pgyer", "merit"],
+    "xiaomi": ["xiaomi", "xm"]
   },
   "ui": {
     "default_audit_package": "com.example.app",
@@ -165,6 +176,23 @@ cp config/config.example.json config/config.json
   }
 }
 ```
+
+如果你想逐字段看“这个 key 是干什么的、什么时候必填、应该填什么值”，请直接看 [config/README.md](/Users/wangwei/Documents/go/apkgo/config/README.md)。
+
+`market_aliases` 用于按 APK 文件名识别市场，值是“市场 -> 别名数组”的映射。Web 上传会用正则做大小写不敏感匹配，只要文件名中包含别名就会命中，例如：
+
+- `demo-apk-xiaomi-release.apk` -> `xiaomi`
+- `demo_xm_release.apk` -> `xiaomi`
+- `demo.qq.release.apk` -> `tencent`
+- `demo-merit-release.apk` -> `pgyer`
+
+Web 上传的补充规则：
+
+- 命中别名时，按识别结果自动带出市场
+- 单个 APK 未命中别名时，页面会展示所有已配置市场，交给用户手动选择
+- 多个 APK 或 zip 中所有 APK 都未命中别名时，不会自动兜底到全部市场，避免误发
+
+如果你在 `config/config.json` 里为某个市场配置了 `market_aliases`，它会覆盖该市场的默认别名数组。
 
 ## 隐私与本地文件
 

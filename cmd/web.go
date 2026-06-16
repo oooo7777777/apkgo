@@ -26,7 +26,6 @@ import (
 	"github.com/KevinGong2013/apkgo/v3/pkg/uploader"
 )
 
-const webConfigPath = "config/config.json"
 const webUploadFormMemory = 2 << 30 // 2 GiB, large enough for local Jenkins web uploads
 
 var (
@@ -42,10 +41,11 @@ type webArtifact struct {
 }
 
 type webArchiveBundle struct {
-	Dir       string                    `json:"-"`
-	Cleanup   func()                    `json:"-"`
-	Artifacts map[string]webArtifactRef `json:"-"`
-	Summary   []webArtifact             `json:"artifacts"`
+	Dir          string                    `json:"-"`
+	Cleanup      func()                    `json:"-"`
+	Artifacts    map[string]webArtifactRef `json:"-"`
+	Summary      []webArtifact             `json:"artifacts"`
+	AutoDetected bool                      `json:"auto_detected"`
 }
 
 type webArtifactRef struct {
@@ -65,16 +65,6 @@ type webStoreRunResult struct {
 	FileName    string        `json:"file_name"`
 	Result      *apkgo.Result `json:"result,omitempty"`
 	Error       string        `json:"error,omitempty"`
-}
-
-var webChannelStoreMap = map[string]webArtifact{
-	"honor":  {Store: "honor", DisplayName: "荣耀", Channel: "honor"},
-	"huawei": {Store: "huawei", DisplayName: "华为", Channel: "huawei"},
-	"merit":  {Store: "pgyer", DisplayName: "蒲公英", Channel: "merit"},
-	"oppo":   {Store: "oppo", DisplayName: "OPPO", Channel: "oppo"},
-	"qq":     {Store: "tencent", DisplayName: "应用宝", Channel: "qq"},
-	"vivo":   {Store: "vivo", DisplayName: "vivo", Channel: "vivo"},
-	"xiaomi": {Store: "xiaomi", DisplayName: "小米", Channel: "xiaomi"},
 }
 
 type webConfigStore struct {
@@ -113,11 +103,13 @@ var webCmd = &cobra.Command{
 		mux := http.NewServeMux()
 		mux.HandleFunc("/", handleWebIndex)
 		mux.HandleFunc("/audit", handleWebAuditPage)
+		mux.HandleFunc("/doctor", handleWebDoctorPage)
 		mux.HandleFunc("/history", handleWebHistoryPage)
 		mux.HandleFunc("/history/detail", handleWebHistoryDetailPage)
 		mux.HandleFunc("/api/audit", handleWebAudit)
 		mux.HandleFunc("/api/audit/sync-feishu", handleWebAuditSyncFeishu)
 		mux.HandleFunc("/api/config", handleWebConfig)
+		mux.HandleFunc("/api/doctor", handleWebDoctor)
 		mux.HandleFunc("/api/history", handleWebHistory)
 		mux.HandleFunc("/api/history/delete", handleWebHistoryDelete)
 		mux.HandleFunc("/api/stores", handleWebStores)
@@ -130,7 +122,7 @@ var webCmd = &cobra.Command{
 			ReadHeaderTimeout: 5 * time.Second,
 		}
 
-		slog.Info("web ui listening", "addr", flagWebAddr, "config", webConfigPath)
+		slog.Info("web ui listening", "addr", flagWebAddr, "config", flagConfig)
 		fmt.Fprintf(os.Stderr, "Open http://%s\n", flagWebAddr)
 		return srv.ListenAndServe()
 	},
@@ -152,6 +144,15 @@ func handleWebAuditPage(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	io.WriteString(w, webAuditHTML)
+}
+
+func handleWebDoctorPage(w http.ResponseWriter, r *http.Request) {
+	if r.URL.Path != "/doctor" {
+		http.NotFound(w, r)
+		return
+	}
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	io.WriteString(w, webDoctorHTML)
 }
 
 func handleWebHistoryPage(w http.ResponseWriter, r *http.Request) {
@@ -198,7 +199,7 @@ func handleWebConfig(w http.ResponseWriter, r *http.Request) {
 	}
 	stores := visibleWebStores(cfg)
 	writeWebJSON(w, http.StatusOK, map[string]any{
-		"path":              webConfigPath,
+		"path":              flagConfig,
 		"configured_stores": stores,
 		"ui":                loadWebUIConfig(),
 	})
@@ -284,7 +285,7 @@ func handleWebUpload(w http.ResponseWriter, r *http.Request) {
 	}
 	defer cleanupFiles()
 
-	bundle, err := buildUploadBundle(files)
+	bundle, err := buildUploadBundle(cfg, files)
 	if err != nil {
 		writeWebError(w, http.StatusBadRequest, err.Error())
 		return
@@ -372,6 +373,46 @@ func handleWebAudit(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+func handleWebDoctor(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		writeWebError(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+	if err := r.ParseMultipartForm(webUploadFormMemory); err != nil {
+		writeWebError(w, http.StatusBadRequest, fmt.Sprintf("解析检测表单失败: %v", err))
+		return
+	}
+
+	cfg, err := loadWebRuntimeConfig()
+	if err != nil {
+		writeWebError(w, http.StatusBadRequest, fmt.Sprintf("load web config: %v", err))
+		return
+	}
+
+	packageName := strings.TrimSpace(r.FormValue("package"))
+	if packageName == "" {
+		packageName = strings.TrimSpace(loadWebUIConfig().DefaultAuditPackage)
+	}
+	apkPath, cleanupAPK, err := saveOptionalUploadedFile(r, "apk")
+	if err != nil {
+		writeWebError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	defer cleanupAPK()
+
+	result, err := apkgo.Diagnose(r.Context(), apkgo.DiagnoseJob{
+		Config:  cfg,
+		Package: packageName,
+		APKFile: apkPath,
+	})
+	if err != nil {
+		writeWebError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	writeWebJSON(w, http.StatusOK, result)
+}
+
 func handleWebAuditSyncFeishu(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		writeWebError(w, http.StatusMethodNotAllowed, "method not allowed")
@@ -430,7 +471,7 @@ func handleWebInspect(w http.ResponseWriter, r *http.Request) {
 	}
 	defer cleanupFiles()
 
-	bundle, err := buildUploadBundle(files)
+	bundle, err := buildUploadBundle(cfg, files)
 	if err != nil {
 		writeWebError(w, http.StatusBadRequest, err.Error())
 		return
@@ -438,25 +479,25 @@ func handleWebInspect(w http.ResponseWriter, r *http.Request) {
 	defer bundle.Cleanup()
 
 	annotated := annotateBundleConfigured(bundle, configuredStoreSet(cfg))
-	if len(annotated.Artifacts) == 0 {
-		writeWebError(w, http.StatusBadRequest, "上传内容里没有识别到支持的渠道包")
-		return
-	}
-
 	writeWebJSON(w, http.StatusOK, map[string]any{
 		"upload": map[string]any{
-			"artifacts": annotated.Summary,
+			"artifacts":      annotated.Summary,
+			"auto_detected":  annotated.AutoDetected,
+			"selection_mode": webSelectionMode(annotated),
 		},
 	})
 }
 
 func loadWebConfig() (*config.Config, error) {
-	return config.Load(webConfigPath)
+	return loadConfigForCmd()
 }
 
 func loadWebUIConfig() webUIConfig {
 	var cfg webUIConfig
-	data, err := os.ReadFile(webConfigPath)
+	if flagCredsFrom != "" {
+		return cfg
+	}
+	data, err := os.ReadFile(flagConfig)
 	if err != nil {
 		return cfg
 	}
@@ -673,9 +714,10 @@ func loadWebRuntimeConfig() (*config.Config, error) {
 		return nil, err
 	}
 	filtered := &config.Config{
-		Hooks:       cfg.Hooks,
-		UpdateCheck: cfg.UpdateCheck,
-		Stores:      map[string]map[string]string{},
+		Hooks:         cfg.Hooks,
+		MarketAliases: cfg.MarketAliases,
+		UpdateCheck:   cfg.UpdateCheck,
+		Stores:        map[string]map[string]string{},
 	}
 	for name, values := range cfg.Stores {
 		if !hasConfiguredValues(values) {
@@ -690,7 +732,7 @@ func loadWebRuntimeConfig() (*config.Config, error) {
 		filtered.Stores[name] = clean
 	}
 	if len(filtered.Stores) == 0 {
-		return nil, fmt.Errorf("no stores configured (check %s)", webConfigPath)
+		return nil, fmt.Errorf("no stores configured (check %s)", flagConfig)
 	}
 	return filtered, nil
 }
@@ -787,7 +829,7 @@ func copyMultipartToTemp(src multipart.File, header *multipart.FileHeader) (stri
 	return tmp.Name(), func() { _ = os.Remove(tmp.Name()) }, nil
 }
 
-func buildUploadBundle(files []webUploadedFile) (*webArchiveBundle, error) {
+func buildUploadBundle(cfg *config.Config, files []webUploadedFile) (*webArchiveBundle, error) {
 	if len(files) == 0 {
 		return nil, fmt.Errorf("请先上传 zip 或 APK 文件")
 	}
@@ -812,12 +854,12 @@ func buildUploadBundle(files []webUploadedFile) (*webArchiveBundle, error) {
 		return nil, fmt.Errorf("暂时只支持上传 1 个 zip，或上传多个 APK")
 	}
 	if len(zipFiles) == 1 {
-		return extractArchiveBundle(zipFiles[0].Path)
+		return extractArchiveBundle(cfg, zipFiles[0].Path)
 	}
-	return buildAPKBundle(files)
+	return buildAPKBundle(cfg, files)
 }
 
-func buildAPKBundle(files []webUploadedFile) (*webArchiveBundle, error) {
+func buildAPKBundle(cfg *config.Config, files []webUploadedFile) (*webArchiveBundle, error) {
 	dir, err := os.MkdirTemp("", "apkgo-web-apk-*")
 	if err != nil {
 		return nil, fmt.Errorf("create temp dir: %w", err)
@@ -825,18 +867,18 @@ func buildAPKBundle(files []webUploadedFile) (*webArchiveBundle, error) {
 	cleanup := func() { _ = os.RemoveAll(dir) }
 
 	bundle := &webArchiveBundle{
-		Dir:       dir,
-		Cleanup:   cleanup,
-		Artifacts: map[string]webArtifactRef{},
+		Dir:          dir,
+		Cleanup:      cleanup,
+		Artifacts:    map[string]webArtifactRef{},
+		AutoDetected: true,
 	}
 
 	for _, file := range files {
 		base := filepath.Base(file.Name)
-		channel, ok := detectChannelFromName(base)
+		meta, ok := detectChannelFromName(cfg, base)
 		if !ok {
 			continue
 		}
-		meta := webChannelStoreMap[channel]
 		dest := uniqueBundlePath(dir, base)
 		if err := copyLocalFile(file.Path, dest); err != nil {
 			cleanup()
@@ -846,7 +888,7 @@ func buildAPKBundle(files []webUploadedFile) (*webArchiveBundle, error) {
 			webArtifact: webArtifact{
 				Store:       meta.Store,
 				DisplayName: meta.DisplayName,
-				Channel:     channel,
+				Channel:     meta.Channel,
 				FileName:    base,
 			},
 			Path: dest,
@@ -855,8 +897,11 @@ func buildAPKBundle(files []webUploadedFile) (*webArchiveBundle, error) {
 	}
 
 	if len(bundle.Artifacts) == 0 {
+		if len(files) == 1 {
+			return buildManualSelectionBundle(dir, cleanup, files[0], cfg)
+		}
 		cleanup()
-		return nil, fmt.Errorf("上传的 APK 里没有识别到支持的渠道包")
+		return nil, fmt.Errorf("上传的 APK 里没有识别到支持的渠道包；多个文件未命中别名时，请修改文件名后重试，或改为单个 APK 手动选择市场")
 	}
 
 	for _, ref := range bundle.Artifacts {
@@ -868,7 +913,7 @@ func buildAPKBundle(files []webUploadedFile) (*webArchiveBundle, error) {
 	return bundle, nil
 }
 
-func extractArchiveBundle(zipPath string) (*webArchiveBundle, error) {
+func extractArchiveBundle(cfg *config.Config, zipPath string) (*webArchiveBundle, error) {
 	reader, err := zip.OpenReader(zipPath)
 	if err != nil {
 		return nil, fmt.Errorf("打开压缩包失败: %w", err)
@@ -882,9 +927,10 @@ func extractArchiveBundle(zipPath string) (*webArchiveBundle, error) {
 	cleanup := func() { _ = os.RemoveAll(dir) }
 
 	bundle := &webArchiveBundle{
-		Dir:       dir,
-		Cleanup:   cleanup,
-		Artifacts: map[string]webArtifactRef{},
+		Dir:          dir,
+		Cleanup:      cleanup,
+		Artifacts:    map[string]webArtifactRef{},
+		AutoDetected: true,
 	}
 
 	for _, f := range reader.File {
@@ -895,11 +941,10 @@ func extractArchiveBundle(zipPath string) (*webArchiveBundle, error) {
 		if !strings.HasSuffix(strings.ToLower(base), ".apk") {
 			continue
 		}
-		channel, ok := detectChannelFromName(base)
+		meta, ok := detectChannelFromName(cfg, base)
 		if !ok {
 			continue
 		}
-		meta := webChannelStoreMap[channel]
 		dest := uniqueBundlePath(dir, base)
 		if err := extractZipFile(f, dest); err != nil {
 			cleanup()
@@ -909,7 +954,7 @@ func extractArchiveBundle(zipPath string) (*webArchiveBundle, error) {
 			webArtifact: webArtifact{
 				Store:       meta.Store,
 				DisplayName: meta.DisplayName,
-				Channel:     channel,
+				Channel:     meta.Channel,
 				FileName:    base,
 			},
 			Path: dest,
@@ -919,7 +964,7 @@ func extractArchiveBundle(zipPath string) (*webArchiveBundle, error) {
 
 	if len(bundle.Artifacts) == 0 {
 		cleanup()
-		return nil, fmt.Errorf("压缩包里没有识别到支持的渠道 APK")
+		return nil, fmt.Errorf("压缩包里没有识别到支持的渠道 APK；请按别名重命名后重试，或改为上传单个 APK 手动选择市场")
 	}
 
 	for _, ref := range bundle.Artifacts {
@@ -978,22 +1023,24 @@ func copyLocalFile(srcPath, destPath string) error {
 	return err
 }
 
-func detectChannelFromName(name string) (string, bool) {
-	lower := strings.ToLower(name)
-	for channel := range webChannelStoreMap {
-		token := "apk-" + channel + "-"
-		if strings.Contains(lower, token) {
-			return channel, true
-		}
+func detectChannelFromName(cfg *config.Config, name string) (webArtifact, bool) {
+	match, ok := cfg.MatchMarketByFilename(name)
+	if !ok {
+		return webArtifact{}, false
 	}
-	return "", false
+	return webArtifact{
+		Store:       match.Store,
+		DisplayName: storeDisplayName(match.Store),
+		Channel:     match.Alias,
+	}, true
 }
 
 func annotateBundleConfigured(bundle *webArchiveBundle, configured map[string]bool) *webArchiveBundle {
 	out := &webArchiveBundle{
-		Dir:       bundle.Dir,
-		Cleanup:   bundle.Cleanup,
-		Artifacts: map[string]webArtifactRef{},
+		Dir:          bundle.Dir,
+		Cleanup:      bundle.Cleanup,
+		Artifacts:    map[string]webArtifactRef{},
+		AutoDetected: bundle.AutoDetected,
 	}
 	for store, ref := range bundle.Artifacts {
 		ref.Configured = configured[store]
@@ -1004,6 +1051,46 @@ func annotateBundleConfigured(bundle *webArchiveBundle, configured map[string]bo
 		return strings.Compare(a.Store, b.Store)
 	})
 	return out
+}
+
+func buildManualSelectionBundle(dir string, cleanup func(), file webUploadedFile, cfg *config.Config) (*webArchiveBundle, error) {
+	base := filepath.Base(file.Name)
+	dest := uniqueBundlePath(dir, base)
+	if err := copyLocalFile(file.Path, dest); err != nil {
+		cleanup()
+		return nil, fmt.Errorf("处理 %s 失败: %w", base, err)
+	}
+
+	bundle := &webArchiveBundle{
+		Dir:          dir,
+		Cleanup:      cleanup,
+		Artifacts:    map[string]webArtifactRef{},
+		AutoDetected: false,
+	}
+	for _, meta := range visibleWebStores(cfg) {
+		ref := webArtifactRef{
+			webArtifact: webArtifact{
+				Store:       meta.Key,
+				DisplayName: meta.DisplayName,
+				Channel:     "",
+				FileName:    base,
+			},
+			Path: dest,
+		}
+		bundle.Artifacts[meta.Key] = ref
+		bundle.Summary = append(bundle.Summary, ref.webArtifact)
+	}
+	slices.SortFunc(bundle.Summary, func(a, b webArtifact) int {
+		return strings.Compare(a.Store, b.Store)
+	})
+	return bundle, nil
+}
+
+func webSelectionMode(bundle *webArchiveBundle) string {
+	if bundle.AutoDetected {
+		return "auto"
+	}
+	return "manual"
 }
 
 func filterBundleForUpload(bundle *webArchiveBundle, configured map[string]bool, selected []string) *webArchiveBundle {
