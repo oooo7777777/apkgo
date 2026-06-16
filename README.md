@@ -30,21 +30,16 @@ macOS 用户可以直接双击：
 停止APKGO网页.command
 ```
 
-`启动APKGO网页.command` 会自动识别当前 Mac 是 `Intel` 还是 `Apple Silicon`，并优先启动项目目录中的对应 `apkgo` 二进制。
-
 Windows 用户请在 PowerShell 或终端中运行：
 
 ```powershell
 apkgo web
 ```
 
-如果二进制还没有加入 PATH，也可以直接运行下载或构建后的可执行文件。
-
-开发源码场景下，如果需要自行构建本地二进制，可以在项目根目录运行：
+如果还没有把二进制加入 PATH，也可以在项目根目录运行：
 
 ```powershell
-go build -o apkgo .
-./apkgo web
+go run . web
 ```
 
 `.command` 文件仅适用于 macOS，不适用于 Windows 或 Linux。
