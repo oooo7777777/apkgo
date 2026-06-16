@@ -10,10 +10,17 @@ CONFIG_EXAMPLE_PATH="${ROOT_DIR}/config/config.example.json"
 cd "${ROOT_DIR}"
 
 if [[ ! -f "${CONFIG_PATH}" ]]; then
-  echo "Missing config: ${CONFIG_PATH}"
-  echo "Please copy ${CONFIG_EXAMPLE_PATH} -> ${CONFIG_PATH} and fill in your credentials."
+  if [[ -f "${CONFIG_EXAMPLE_PATH}" ]]; then
+    cp "${CONFIG_EXAMPLE_PATH}" "${CONFIG_PATH}"
+    echo "Created config from template: ${CONFIG_PATH}"
+  else
+    echo "Missing config: ${CONFIG_PATH}"
+    echo "Template not found: ${CONFIG_EXAMPLE_PATH}"
+    echo "Read config instructions in: ${ROOT_DIR}/config/README.md"
+    exit 1
+  fi
+  echo "Starting with template config. Fill in credentials in: ${CONFIG_PATH}"
   echo "Read config instructions in: ${ROOT_DIR}/config/README.md"
-  exit 1
 fi
 
 if command -v lsof >/dev/null 2>&1; then
