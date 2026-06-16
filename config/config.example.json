@@ -1,6 +1,6 @@
 {
   "hooks": {
-    "after": "go run . notify feishu --webhook 'https://open.feishu.cn/open-apis/bot/v2/hook/your-webhook'"
+    "after": ""
   },
   "market_aliases": {
     "fir": ["fir"],
@@ -16,7 +16,7 @@
     "xiaomi": ["xiaomi", "xm"]
   },
   "ui": {
-    "default_audit_package": "com.example.app",
+    "default_audit_package": "",
     "manual_urls": {
       "huawei": "https://developer.huawei.com/consumer/cn/",
       "tencent": "https://open.tencent.com/",
@@ -39,7 +39,7 @@
     "access_secret": ""
   },
   "huawei": {
-    "service_account_file": "./config/huawei.json"
+    "service_account_file": ""
   },
   "vivo": {
     "access_key": "",
@@ -56,7 +56,7 @@
   "xiaomi": {
     "email": "",
     "private_key": "",
-    "cert_file": "./config/xiaomi.cer"
+    "cert_file": ""
   },
   "googleplay": {
     "json_key_file": "",

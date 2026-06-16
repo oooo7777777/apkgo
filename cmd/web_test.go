@@ -277,6 +277,70 @@ func TestBuildWebConfigListItems_IncludesDefaultAuditPackage(t *testing.T) {
 	t.Fatalf("default_audit_package item not found")
 }
 
+func TestBuildWebConfigListItems_TreatsTemplateValuesAsUnconfigured(t *testing.T) {
+	doc := &webConfigDocument{
+		Hooks: map[string]map[string]string{
+			"after": {
+				"command": "go run . notify feishu --webhook 'https://open.feishu.cn/open-apis/bot/v2/hook/your-webhook'",
+			},
+		},
+		UI: webUIConfig{
+			DefaultAuditPackage: "com.example.app",
+		},
+		Stores: map[string]map[string]string{
+			"huawei": {
+				"service_account_file": "./config/huawei.json",
+			},
+			"xiaomi": {
+				"cert_file": "./config/xiaomi.cer",
+			},
+		},
+		MarketAliases: map[string][]string{},
+	}
+
+	items := buildWebConfigListItems(doc)
+	for _, item := range items {
+		switch {
+		case item.GroupKey == "stores" && item.Key == "huawei" && item.Configured:
+			t.Fatalf("template huawei should not be configured: %#v", item)
+		case item.GroupKey == "stores" && item.Key == "xiaomi" && item.Configured:
+			t.Fatalf("template xiaomi should not be configured: %#v", item)
+		case item.GroupKey == "ui" && item.Key == "default_audit_package" && item.Configured:
+			t.Fatalf("template default_audit_package should not be configured: %#v", item)
+		case item.GroupKey == "hooks" && item.Key == "feishu" && item.Configured:
+			t.Fatalf("template feishu webhook should not be configured: %#v", item)
+		}
+	}
+}
+
+func TestHasConfiguredValues_FilePathRequiresActualFile(t *testing.T) {
+	tmp := t.TempDir()
+	wd, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("Getwd: %v", err)
+	}
+	t.Cleanup(func() {
+		_ = os.Chdir(wd)
+	})
+	if err := os.Chdir(tmp); err != nil {
+		t.Fatalf("Chdir: %v", err)
+	}
+	if err := os.MkdirAll("config", 0755); err != nil {
+		t.Fatalf("MkdirAll: %v", err)
+	}
+
+	if hasConfiguredValues(map[string]string{"service_account_file": "./config/huawei.json"}) {
+		t.Fatalf("missing uploaded file should not count as configured")
+	}
+
+	if err := os.WriteFile(filepath.Join("config", "huawei.json"), []byte(`{"key_id":"demo"}`), 0644); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+	if !hasConfiguredValues(map[string]string{"service_account_file": "./config/huawei.json"}) {
+		t.Fatalf("existing uploaded file should count as configured")
+	}
+}
+
 func TestHandleWebConfigSave_DoesNotPreserveClearedSecretFields(t *testing.T) {
 	tmp := t.TempDir()
 	oldConfig := flagConfig

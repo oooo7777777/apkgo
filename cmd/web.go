@@ -1022,6 +1022,34 @@ func extractFeishuWebhook(command string) string {
 	return fields[0]
 }
 
+func isPlaceholderValue(value string) bool {
+	trimmed := strings.TrimSpace(value)
+	if trimmed == "" {
+		return true
+	}
+	lower := strings.ToLower(trimmed)
+	switch lower {
+	case "com.example.app",
+		"https://open.feishu.cn/open-apis/bot/v2/hook/your-webhook":
+		return true
+	}
+	return false
+}
+
+func hasConfiguredStoreValue(value string) bool {
+	trimmed := strings.TrimSpace(value)
+	if trimmed == "" {
+		return false
+	}
+	switch strings.ToLower(trimmed) {
+	case "./config/huawei.json", "./config/xiaomi.cer":
+		_, err := os.Stat(trimmed)
+		return err == nil
+	default:
+		return true
+	}
+}
+
 func loadWebFeishuWebhook() (string, error) {
 	cfg, err := loadWebConfig()
 	if err != nil {
@@ -1064,17 +1092,18 @@ func buildWebConfigListItems(doc *webConfigDocument) []webConfigListItem {
 		switch section.Key {
 		case "hooks":
 			webhook := extractFeishuWebhook(doc.Hooks["after"]["command"])
+			configured := !isPlaceholderValue(webhook)
 			items = append(items, webConfigListItem{
 				GroupKey:    "hooks",
 				Key:         "feishu",
 				DisplayName: "飞书",
-				Summary:     ternarySummary(webhook != "", "已配置", "未配置"),
-				Configured:  webhook != "",
+				Summary:     ternarySummary(configured, "已配置", "未配置"),
+				Configured:  configured,
 				SectionKey:  section.Key,
 				EditLabel:   "编辑",
 			})
 		case "ui":
-			configured := strings.TrimSpace(doc.UI.DefaultAuditPackage) != ""
+			configured := !isPlaceholderValue(doc.UI.DefaultAuditPackage)
 			items = append(items, webConfigListItem{
 				GroupKey:    "ui",
 				Key:         "default_audit_package",
@@ -2031,7 +2060,7 @@ func formatWebTime(raw string) string {
 
 func hasConfiguredValues(values map[string]string) bool {
 	for _, v := range values {
-		if strings.TrimSpace(v) != "" {
+		if hasConfiguredStoreValue(v) {
 			return true
 		}
 	}
