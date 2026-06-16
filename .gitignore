@@ -25,7 +25,9 @@ config/.DS_Store
 *.swo
 
 # Scripts
-scripts/
+scripts/*
+!scripts/start-web.sh
+!scripts/stop-web.sh
 
 # OS
 .DS_Store
