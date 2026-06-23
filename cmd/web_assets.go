@@ -2702,22 +2702,6 @@ const webAuditHTML = `<!doctype html>
       background: rgba(106,169,255,0.14);
       color: #91b8ff;
     }
-    .result-json {
-      margin: 16px 0 0;
-      padding: 16px;
-      border-radius: 18px;
-      border: 1px solid rgba(255,255,255,0.08);
-      background: rgba(255,255,255,0.03);
-      color: #dbe6ff;
-      font-size: 12px;
-      line-height: 1.7;
-      white-space: pre-wrap;
-      word-break: break-word;
-      display: none;
-    }
-    .result-json.show {
-      display: block;
-    }
     @media (max-width: 900px) {
       .hero-side {
         grid-template-columns: 1fr;
@@ -2784,7 +2768,6 @@ const webAuditHTML = `<!doctype html>
       <div class="panel-body">
         <div id="audit-status" class="status"></div>
         <div id="audit-results" class="audit-results"></div>
-        <pre id="result-json" class="result-json"></pre>
       </div>
     </section>
   </div>
@@ -2871,7 +2854,6 @@ const webAuditHTML = `<!doctype html>
     function renderResults(data) {
       latestAuditData = data;
       const root = document.getElementById('audit-results');
-      const json = document.getElementById('result-json');
       document.getElementById('sync-feishu-btn').classList.remove('hidden');
       root.innerHTML = '';
       const stores = [...(data.stores || [])].sort((a, b) => {
@@ -2911,8 +2893,6 @@ const webAuditHTML = `<!doctype html>
           action;
         root.appendChild(card);
       }
-      json.textContent = JSON.stringify(data, null, 2);
-      json.className = 'result-json show';
     }
 
     async function loadConfig() {
