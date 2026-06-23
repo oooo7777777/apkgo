@@ -1301,6 +1301,9 @@ func buildFeishuAuditCard(report *apkgo.AuditReport) map[string]any {
 				statusText = "状态未知"
 				statusColor = "grey"
 			}
+			if detail := strings.TrimSpace(item.Detail); detail != "" {
+				detailLines = append(detailLines, detail)
+			}
 		}
 		if manualURL := manualViewURL(item.Store); manualURL != "" {
 			detailLines = append(detailLines, fmt.Sprintf("[手动查看](%s)", manualURL))

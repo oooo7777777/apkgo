@@ -18,8 +18,18 @@ func TestMapHuaweiReleaseState(t *testing.T) {
 		7: store.AuditUnknown, 99: store.AuditUnknown,
 	}
 	for state, want := range cases {
-		if got, _ := mapHuaweiReleaseState(state); got != want {
+		if got, _ := mapHuaweiReleaseState(state, ""); got != want {
 			t.Errorf("mapHuaweiReleaseState(%d) = %q, want %q", state, got, want)
 		}
+	}
+}
+
+func TestMapHuaweiReleaseState_UsesAuditOpinionForRejected(t *testing.T) {
+	got, detail := mapHuaweiReleaseState(8, "应用截图含有无效内容")
+	if got != store.AuditRejected {
+		t.Fatalf("state = %q, want %q", got, store.AuditRejected)
+	}
+	if detail != "应用截图含有无效内容" {
+		t.Fatalf("detail = %q, want auditOpinion", detail)
 	}
 }

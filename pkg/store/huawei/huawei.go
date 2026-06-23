@@ -57,11 +57,17 @@ func audit(ctx context.Context, cfg map[string]string, q store.AuditQuery) store
 		}
 	}
 	var resp struct {
-		Ret     retInfo `json:"ret"`
+		Ret       retInfo `json:"ret"`
+		AuditInfo struct {
+			AuditOpinion string `json:"auditOpinion"`
+		} `json:"auditInfo"`
 		AppInfo struct {
 			ReleaseState       int        `json:"releaseState"`
 			VersionCode        lenientInt `json:"versionCode"`
 			OnShelfVersionCode lenientInt `json:"onShelfVersionCode"`
+			AuditInfo          struct {
+				AuditOpinion string `json:"auditOpinion"`
+			} `json:"auditInfo"`
 		} `json:"appInfo"`
 	}
 	httpResp, err := s.client.R().
@@ -81,7 +87,12 @@ func audit(ctx context.Context, cfg map[string]string, q store.AuditQuery) store
 		res.Error = fmt.Sprintf("[%d] %s", resp.Ret.Code, resp.Ret.text())
 		return res
 	}
-	res.State, res.Detail = mapHuaweiReleaseState(resp.AppInfo.ReleaseState)
+	auditOpinion := strings.TrimSpace(resp.AuditInfo.AuditOpinion)
+	if auditOpinion == "" {
+		// Be tolerant of historical/variant payloads that nest auditInfo under appInfo.
+		auditOpinion = strings.TrimSpace(resp.AppInfo.AuditInfo.AuditOpinion)
+	}
+	res.State, res.Detail = mapHuaweiReleaseState(resp.AppInfo.ReleaseState, auditOpinion)
 	res.VersionCode = int64(resp.AppInfo.VersionCode)
 	res.OnShelfVersionCode = int64(resp.AppInfo.OnShelfVersionCode)
 	return res
@@ -91,13 +102,17 @@ func audit(ctx context.Context, cfg map[string]string, q store.AuditQuery) store
 // unified state. 0=已上架, 1=上架审核不通过, 2=已下架, 3=待上架(预约), 4=审核中,
 // 5=升级审核中, 6=申请下架, 7=草稿, 8=升级审核不通过, 9=下架审核不通过,
 // 10=开发者下架, 11=撤销上架, 12=预审中, 13=预审不通过.
-func mapHuaweiReleaseState(state int) (store.AuditState, string) {
+func mapHuaweiReleaseState(state int, auditOpinion string) (store.AuditState, string) {
+	auditOpinion = strings.TrimSpace(auditOpinion)
 	switch state {
 	case 4, 5, 12:
 		return store.AuditReviewing, fmt.Sprintf("releaseState=%d", state)
 	case 0, 3:
 		return store.AuditApproved, fmt.Sprintf("releaseState=%d", state)
 	case 1, 8, 13:
+		if auditOpinion != "" {
+			return store.AuditRejected, auditOpinion
+		}
 		return store.AuditRejected, fmt.Sprintf("releaseState=%d", state)
 	case 2, 10, 11:
 		return store.AuditWithdrawn, fmt.Sprintf("releaseState=%d", state)

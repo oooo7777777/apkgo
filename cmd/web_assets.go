@@ -2694,6 +2694,10 @@ const webAuditHTML = `<!doctype html>
       background: rgba(255,180,84,0.14);
       color: var(--warn);
     }
+    .badge.bad {
+      background: rgba(255,107,122,0.14);
+      color: var(--bad);
+    }
     .badge.info {
       background: rgba(106,169,255,0.14);
       color: #91b8ff;
@@ -2811,10 +2815,10 @@ const webAuditHTML = `<!doctype html>
 
     function stateMeta(item) {
       if (!item.supported) return { label: '暂不支持', badge: 'info', card: 'unsupported' };
-      if (item.error) return { label: '查询失败', badge: 'warn', card: 'rejected' };
+      if (item.error) return { label: '查询失败', badge: 'bad', card: 'rejected' };
       switch (item.state) {
         case 'approved': return { label: '审核通过', badge: 'ok', card: 'approved' };
-        case 'rejected': return { label: '审核驳回', badge: 'warn', card: 'rejected' };
+        case 'rejected': return { label: '审核驳回', badge: 'bad', card: 'rejected' };
         case 'withdrawn': return { label: '已撤回', badge: 'info', card: 'withdrawn' };
         case 'reviewing': return { label: '审核中', badge: 'warn', card: 'reviewing' };
         default: return { label: '状态未知', badge: 'info', card: 'unknown' };
@@ -2886,11 +2890,11 @@ const webAuditHTML = `<!doctype html>
         }
         const detail = !item.supported
           ? (item.store === 'xiaomi'
-            ? '该市场当前暂未提供审核状态查询接口，请手动查看。'
+            ? '官方未提供审核状态查询 API，请前往小米后台查看。'
             : '该市场当前还没有接入审核状态查询接口。')
           : item.error
             ? item.error
-            : '';
+            : (item.detail || '');
         const manualURL = manualViewURL(item.store);
         const action = manualURL
           ? '<div class="audit-actions"><a class="audit-link" href="' + escapeHtml(manualURL) + '" target="_blank" rel="noreferrer">手动查看</a></div>'
