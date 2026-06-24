@@ -799,7 +799,7 @@ func TestHandleWebConfigSave_UploadedFileIsUsedByRuntimeConfig(t *testing.T) {
 	}
 }
 
-func TestListWebApps_MigratesExistingMainConfig(t *testing.T) {
+func TestListWebApps_DoesNotCreateDefaultAppFromMainConfig(t *testing.T) {
 	tmp := t.TempDir()
 	oldConfig := flagConfig
 	oldCredsFrom := flagCredsFrom
@@ -821,20 +821,14 @@ func TestListWebApps_MigratesExistingMainConfig(t *testing.T) {
 	if err != nil {
 		t.Fatalf("listWebApps: %v", err)
 	}
-	if current == "" {
-		t.Fatalf("current app should be initialized")
+	if current != "" {
+		t.Fatalf("current app = %q, want empty", current)
 	}
-	if len(items) != 1 {
-		t.Fatalf("items len = %d, want 1", len(items))
+	if len(items) != 0 {
+		t.Fatalf("items len = %d, want 0", len(items))
 	}
-	if !items[0].Selected {
-		t.Fatalf("expected migrated app to be selected")
-	}
-	if items[0].Name == "" {
-		t.Fatalf("expected migrated app name")
-	}
-	if _, err := os.Stat(webAppConfigPath(current)); err != nil {
-		t.Fatalf("migrated app config missing: %v", err)
+	if _, err := os.Stat(filepath.Join(webAppsDir(), "default-app.json")); !os.IsNotExist(err) {
+		t.Fatalf("default app config should not exist, err = %v", err)
 	}
 }
 
@@ -1002,6 +996,19 @@ func TestHandleWebHistory_UsesSelectedAppHistory(t *testing.T) {
 	if _, _, err := listWebApps(); err != nil {
 		t.Fatalf("listWebApps init: %v", err)
 	}
+	app1 := &webConfigDocument{
+		UI: webUIConfig{
+			AppName:             "App One",
+			DefaultAuditPackage: "com.one.app",
+			ManualURLs:          map[string]string{},
+		},
+		Hooks:         map[string]map[string]string{},
+		Stores:        map[string]map[string]string{},
+		MarketAliases: map[string][]string{},
+	}
+	if err := saveWebEditableConfigAt(webAppConfigPath("app-one"), app1); err != nil {
+		t.Fatalf("saveWebEditableConfigAt app-one: %v", err)
+	}
 
 	home := filepath.Join(tmp, "home")
 	if err := os.MkdirAll(home, 0755); err != nil {
@@ -1115,6 +1122,19 @@ func TestHandleWebHistoryDelete_SyncsSelectedAppHistory(t *testing.T) {
 	}
 	if _, _, err := listWebApps(); err != nil {
 		t.Fatalf("listWebApps init: %v", err)
+	}
+	app1 := &webConfigDocument{
+		UI: webUIConfig{
+			AppName:             "App One",
+			DefaultAuditPackage: "com.one.app",
+			ManualURLs:          map[string]string{},
+		},
+		Hooks:         map[string]map[string]string{},
+		Stores:        map[string]map[string]string{},
+		MarketAliases: map[string][]string{},
+	}
+	if err := saveWebEditableConfigAt(webAppConfigPath("app-one"), app1); err != nil {
+		t.Fatalf("saveWebEditableConfigAt app-one: %v", err)
 	}
 
 	if err := history.AppendRecord(webAppHistoryPath("app-one"), history.Record{

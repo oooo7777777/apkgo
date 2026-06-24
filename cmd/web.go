@@ -1048,40 +1048,10 @@ func ensureWebAppsInitialized() error {
 	}
 
 	if _, err := os.Stat(webAppsStatePath()); errors.Is(err, os.ErrNotExist) {
-		if _, err := os.Stat(mainWebConfigPath()); errors.Is(err, os.ErrNotExist) {
-			if err := writeWebAppsState(webAppState{}); err != nil {
-				return err
-			}
-			return ensureWebAppHistoryFiles("")
-		} else if err != nil {
-			return fmt.Errorf("读取主配置失败: %w", err)
-		}
-
-		doc, err := loadWebEditableConfigAt(mainWebConfigPath())
-		if err != nil {
+		if err := writeWebAppsState(webAppState{}); err != nil {
 			return err
 		}
-		name := strings.TrimSpace(doc.UI.AppName)
-		if name == "" {
-			name = "默认应用"
-			doc.UI.AppName = name
-			if err := saveWebEditableConfigAt(mainWebConfigPath(), doc); err != nil {
-				return err
-			}
-		}
-		appID := sanitizeWebAppID(name)
-		if appID == "" {
-			appID = "default-app"
-		}
-		if err := copyLocalFile(mainWebConfigPath(), webAppConfigPath(appID)); err != nil {
-			return fmt.Errorf("初始化 app 配置失败: %w", err)
-		}
-		if err := copyFileOrCreateEmpty(mainWebHistoryPath(), webAppHistoryPath(appID)); err != nil {
-			return fmt.Errorf("初始化 app 历史失败: %w", err)
-		}
-		if err := writeWebAppsState(webAppState{Current: appID}); err != nil {
-			return err
-		}
+		return ensureWebAppHistoryFiles("")
 	}
 
 	state, err := loadWebAppsStateFile()
