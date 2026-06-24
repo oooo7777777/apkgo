@@ -1,6 +1,359 @@
 package cmd
 
-const webIndexHTML = `<!doctype html>
+const webAppsHTML = `<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>apkgo Apps</title>
+  <style>
+    :root {
+      --bg: #090b10;
+      --panel: rgba(14,18,25,0.88);
+      --line: rgba(130,164,255,0.14);
+      --line-strong: rgba(130,164,255,0.28);
+      --text: #edf3ff;
+      --muted: #8d9ab3;
+      --accent: #4de2c5;
+      --accent-2: #6aa9ff;
+      --ok: #46d39a;
+      --bad: #ff6b7a;
+      --shadow: 0 28px 80px rgba(0,0,0,0.45);
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      min-height: 100vh;
+      color: var(--text);
+      font-family: "SF Mono", "JetBrains Mono", "IBM Plex Sans", "PingFang SC", "Microsoft YaHei", monospace, sans-serif;
+      background:
+        radial-gradient(circle at 12% 10%, rgba(77,226,197,0.12), transparent 22%),
+        radial-gradient(circle at 88% 14%, rgba(106,169,255,0.12), transparent 20%),
+        linear-gradient(180deg, #07090d 0%, #090b10 100%);
+    }
+    .shell {
+      max-width: 1120px;
+      margin: 0 auto;
+      padding: 28px 20px 52px;
+    }
+    .hero, .panel {
+      border-radius: 28px;
+      background: var(--panel);
+      border: 1px solid var(--line-strong);
+      box-shadow: var(--shadow);
+    }
+    .hero {
+      padding: 24px;
+      margin-bottom: 20px;
+    }
+    .hero-top {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 16px;
+    }
+    h1 {
+      margin: 0 0 10px;
+      font-size: clamp(34px, 6vw, 58px);
+      line-height: .94;
+      letter-spacing: -0.06em;
+    }
+    .hero-desc {
+      max-width: 720px;
+      color: var(--muted);
+      font-size: 14px;
+      line-height: 1.8;
+    }
+    .page-actions {
+      display: flex;
+      gap: 12px;
+      flex-wrap: wrap;
+    }
+    .hero-link, button, .primary-link {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 44px;
+      padding: 0 18px;
+      border-radius: 999px;
+      border: 1px solid rgba(255,255,255,0.08);
+      background: rgba(255,255,255,0.05);
+      color: var(--text);
+      text-decoration: none;
+      font: inherit;
+      font-size: 12px;
+      font-weight: 800;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      cursor: pointer;
+    }
+    .primary-link, button.primary {
+      background: linear-gradient(135deg, rgba(77,226,197,0.18), rgba(106,169,255,0.2));
+      border-color: rgba(77,226,197,0.28);
+    }
+    .panel-head {
+      padding: 18px 22px 14px;
+      border-bottom: 1px solid rgba(255,255,255,0.05);
+    }
+    .panel-head-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 14px;
+      margin-bottom: 8px;
+    }
+    .panel-kicker {
+      color: var(--accent-2);
+      font-size: 11px;
+      font-weight: 800;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      margin-bottom: 10px;
+    }
+    .panel h2 {
+      margin: 0 0 8px;
+      font-size: 24px;
+      letter-spacing: -0.04em;
+    }
+    .note {
+      margin: 0;
+      color: var(--muted);
+      font-size: 13px;
+      line-height: 1.7;
+    }
+    .panel-body {
+      padding: 22px;
+    }
+    .app-list {
+      display: grid;
+      gap: 14px;
+    }
+    .app-card {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      gap: 12px;
+      align-items: center;
+      padding: 16px 18px;
+      border: 1px solid rgba(130,164,255,0.14);
+      border-radius: 20px;
+      background: rgba(8,12,18,0.9);
+    }
+    .app-card.selected {
+      border-color: rgba(77,226,197,0.4);
+      box-shadow: 0 0 0 3px rgba(77,226,197,0.08);
+    }
+    .app-meta {
+      display: grid;
+      gap: 6px;
+    }
+    .app-name {
+      font-size: 18px;
+      font-weight: 800;
+    }
+    .app-subtitle {
+      color: var(--muted);
+      font-size: 13px;
+      line-height: 1.6;
+    }
+    .badge {
+      display: inline-flex;
+      width: fit-content;
+      padding: 4px 10px;
+      border-radius: 999px;
+      font-size: 11px;
+      font-weight: 800;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      background: rgba(255,255,255,0.06);
+      color: var(--muted);
+    }
+    .badge.ok {
+      background: rgba(70,211,154,0.16);
+      color: #88efc3;
+    }
+    .app-actions {
+      display: flex;
+      gap: 10px;
+      flex-wrap: wrap;
+      justify-content: flex-end;
+    }
+    .ghost {
+      background: rgba(255,255,255,0.04);
+    }
+    .danger {
+      border-color: rgba(255,107,122,0.24);
+      color: #ffc2c8;
+      background: rgba(255,107,122,0.08);
+    }
+    .status {
+      margin-top: 14px;
+      padding: 12px 14px;
+      border-radius: 16px;
+      border: 1px solid transparent;
+      display: none;
+      font-size: 13px;
+      line-height: 1.6;
+    }
+    .status.show { display: block; }
+    .status.ok {
+      background: rgba(70,211,154,0.12);
+      border-color: rgba(70,211,154,0.24);
+      color: #88efc3;
+    }
+    .status.bad {
+      background: rgba(255,107,122,0.12);
+      border-color: rgba(255,107,122,0.24);
+      color: #ffc2c8;
+    }
+    .empty {
+      padding: 18px;
+      border-radius: 18px;
+      background: rgba(255,255,255,0.03);
+      color: var(--muted);
+      text-align: center;
+    }
+    @media (max-width: 760px) {
+      .hero-top, .app-card {
+        grid-template-columns: 1fr;
+        display: grid;
+      }
+      .app-actions {
+        justify-content: flex-start;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="shell">
+    <section class="hero">
+      <div class="hero-top">
+        <div>
+          <h1>APKGO</h1>
+          <div class="hero-desc">一个面向多应用分发场景的 APK 发布工具。你可以先选择当前要操作的 App，系统会将对应配置切换为主 config，再继续完成发布、审核查询和历史记录管理。</div>
+        </div>
+      </div>
+    </section>
+
+    <section class="panel">
+      <div class="panel-head">
+        <div class="panel-head-row">
+          <div class="panel-kicker">app center</div>
+          <a class="primary-link" href="/config?mode=create-app">新增 App</a>
+        </div>
+        <h2>App 列表</h2>
+      </div>
+      <div class="panel-body">
+        <div id="apps-status" class="status"></div>
+        <div id="apps-list" class="app-list"></div>
+      </div>
+    </section>
+  </div>
+
+  <script>
+    function escapeHtml(value) {
+      return String(value || '')
+        .replaceAll('&', '&amp;')
+        .replaceAll('<', '&lt;')
+        .replaceAll('>', '&gt;')
+        .replaceAll('"', '&quot;')
+        .replaceAll("'", '&#39;');
+    }
+
+    function setStatus(message, kind) {
+      const el = document.getElementById('apps-status');
+      if (!message) {
+        el.textContent = '';
+        el.className = 'status';
+        return;
+      }
+      el.textContent = message;
+      el.className = 'status show ' + kind;
+    }
+
+    async function loadApps() {
+      const resp = await fetch('/api/apps');
+      const data = await resp.json();
+      if (!resp.ok) throw new Error(data.error || '读取 App 失败');
+      renderApps(data.apps || []);
+    }
+
+    function refreshAppsOnReturn() {
+      loadApps().catch((err) => setStatus(String(err), 'bad'));
+    }
+
+    window.addEventListener('pageshow', refreshAppsOnReturn);
+    window.addEventListener('focus', refreshAppsOnReturn);
+    document.addEventListener('visibilitychange', () => {
+      if (!document.hidden) refreshAppsOnReturn();
+    });
+
+    function renderApps(apps) {
+      const root = document.getElementById('apps-list');
+      if (!apps.length) {
+        root.innerHTML = '<div class="empty">还没有可用的 App，请先新增一个。</div>';
+        return;
+      }
+      root.innerHTML = apps.map((app) => (
+        '<section class="app-card' + (app.selected ? ' selected' : '') + '">' +
+          '<div class="app-meta">' +
+            '<div class="app-name">' + escapeHtml(app.name) + '</div>' +
+            '<div class="app-subtitle">包名：' + escapeHtml(app.package_name || '未配置') + '</div>' +
+            (app.selected ? '<span class="badge ok">当前主配置</span>' : '<span class="badge">可切换</span>') +
+          '</div>' +
+          '<div class="app-actions">' +
+            (app.selected ? '<a class="ghost primary-link" href="/upload">进入发布页</a>' : '<button type="button" class="primary" data-select="' + escapeHtml(app.id) + '">选择并进入发布页</button>') +
+            '<a class="ghost primary-link" href="/config?app=' + encodeURIComponent(app.id) + '">编辑</a>' +
+            '<button type="button" class="danger" data-delete="' + escapeHtml(app.id) + '">删除</button>' +
+          '</div>' +
+        '</section>'
+      )).join('');
+    }
+
+    async function selectApp(id) {
+      setStatus('', '');
+      const resp = await fetch('/api/apps/select', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id }),
+      });
+      const data = await resp.json();
+      if (!resp.ok) throw new Error(data.error || '切换 App 失败');
+      window.location.href = '/upload';
+    }
+
+    async function deleteApp(id) {
+      if (!window.confirm('确认删除这个 App 配置吗？')) return;
+      setStatus('', '');
+      const resp = await fetch('/api/apps/delete', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id }),
+      });
+      const data = await resp.json();
+      if (!resp.ok) throw new Error(data.error || '删除 App 失败');
+      setStatus('App 已删除。', 'ok');
+      renderApps(data.apps || []);
+    }
+
+    document.addEventListener('click', (event) => {
+      const selectBtn = event.target.closest('[data-select]');
+      if (selectBtn) {
+        selectApp(selectBtn.getAttribute('data-select')).catch((err) => setStatus(String(err), 'bad'));
+        return;
+      }
+      const deleteBtn = event.target.closest('[data-delete]');
+      if (deleteBtn) {
+        deleteApp(deleteBtn.getAttribute('data-delete')).catch((err) => setStatus(String(err), 'bad'));
+      }
+    });
+
+    loadApps().catch((err) => setStatus(String(err), 'bad'));
+  </script>
+</body>
+</html>
+`
+
+const webUploadHTML = `<!doctype html>
 <html lang="zh-CN">
 <head>
   <meta charset="utf-8">
@@ -875,8 +1228,9 @@ const webIndexHTML = `<!doctype html>
     <section class="hero">
       <div class="hero-top">
         <div class="hero-bar">
-          <h1>APKGO</h1>
+          <h1 id="page-title">Upload</h1>
           <div class="hero-actions">
+            <a class="hero-link" href="/apps">App 管理</a>
             <a class="hero-link" href="/config">配置中心</a>
             <a class="hero-link" href="/history">发布记录</a>
             <a class="hero-link" href="/audit">审核查询</a>
@@ -1078,6 +1432,17 @@ const webIndexHTML = `<!doctype html>
         .replaceAll('>', '&gt;')
         .replaceAll('"', '&quot;')
         .replaceAll("'", '&#39;');
+    }
+
+    async function applyCurrentAppTitle() {
+      try {
+        const resp = await fetch('/api/app/current');
+        const data = await resp.json();
+        if (!resp.ok) return;
+        const appName = data?.name || 'APKGO';
+        document.getElementById('page-title').textContent = appName + ' Upload';
+        document.title = appName + ' Upload';
+      } catch (_) {}
     }
 
     function setMarketLoading() {
@@ -1666,6 +2031,7 @@ const webIndexHTML = `<!doctype html>
     });
 
     syncPublishTimeMin();
+    applyCurrentAppTitle();
     syncPublishModeUI();
     resetLogs();
   </script>
@@ -2085,8 +2451,8 @@ const webConfigHTML = `<!doctype html>
     <section class="hero">
       <div class="hero-top">
         <div class="hero-bar">
-          <h1>Config</h1>
-          <a class="hero-link" href="/">返回发布页</a>
+          <h1 id="page-title">Config</h1>
+          <a class="hero-link" href="/upload">返回发布页</a>
         </div>
         <div class="hero-desc">集中维护发布流程需要的核心配置。每项配置按条目展示，可单独编辑与保存。</div>
       </div>
@@ -2095,7 +2461,7 @@ const webConfigHTML = `<!doctype html>
     <section class="panel">
       <div class="panel-head">
         <div class="panel-kicker">config center</div>
-        <h2>配置列表</h2>
+        <h2 id="config-title">配置列表</h2>
       </div>
       <div class="panel-body">
         <div id="config-groups"></div>
@@ -2125,6 +2491,7 @@ const webConfigHTML = `<!doctype html>
     let configPayload = null;
     let modalSection = null;
     let modalSaving = false;
+    const createAppMode = new URLSearchParams(window.location.search).get('mode') === 'create-app';
 
     function escapeHtml(value) {
       return String(value || '')
@@ -2133,6 +2500,17 @@ const webConfigHTML = `<!doctype html>
         .replaceAll('>', '&gt;')
         .replaceAll('"', '&quot;')
         .replaceAll("'", '&#39;');
+    }
+
+    async function applyCurrentAppTitle() {
+      try {
+        const resp = await fetch('/api/config' + window.location.search);
+        const data = await resp.json();
+        if (!resp.ok) return;
+        const appName = data?.ui?.app_name || data?.current_app || 'APKGO';
+        document.getElementById('page-title').textContent = appName + ' Config';
+        document.title = appName + ' Config';
+      } catch (_) {}
     }
 
     function setModalStatus(message, kind) {
@@ -2148,6 +2526,7 @@ const webConfigHTML = `<!doctype html>
 
     function groupTitle(key) {
       const map = {
+        app: 'App 名称',
         stores: '商店凭证',
         ui: '包名配置',
         hooks: '飞书机器人配置',
@@ -2163,11 +2542,13 @@ const webConfigHTML = `<!doctype html>
     function renderGroups() {
       const groups = document.getElementById('config-groups');
       const allItems = configPayload?.items || [];
-      const ordered = ['stores', 'ui', 'hooks', 'aliases'];
+      const ordered = ['app', 'ui', 'hooks', 'stores', 'aliases'];
       groups.innerHTML = ordered.map((groupKey) => {
         const items = allItems
           .filter((item) => item.group_key === groupKey)
           .sort((a, b) => {
+            const orderDiff = Number(a.order || 0) - Number(b.order || 0);
+            if (orderDiff !== 0) return orderDiff;
             if (Boolean(a.configured) !== Boolean(b.configured)) {
               return a.configured ? -1 : 1;
             }
@@ -2193,6 +2574,7 @@ const webConfigHTML = `<!doctype html>
     }
 
     function sectionValue(sectionKey, fieldKey) {
+      if (sectionKey === 'app') return configPayload?.ui?.app_name || '';
       if (sectionKey === 'hooks') return configPayload?.hooks?.feishu_webhook || '';
       if (sectionKey === 'ui') return configPayload?.ui?.default_audit_package || '';
       if (sectionKey === 'aliases') return '';
@@ -2255,6 +2637,10 @@ const webConfigHTML = `<!doctype html>
 
     function closeModal() {
       if (modalSaving) return;
+      if (createAppMode) {
+        window.location.href = '/apps';
+        return;
+      }
       setModalStatus('', '');
       modalSection = null;
       document.getElementById('config-modal').classList.remove('show');
@@ -2269,6 +2655,8 @@ const webConfigHTML = `<!doctype html>
         market_aliases: configPayload.market_aliases || {},
         target_group: modalSection?.groupKey || '',
         target_section: modalSection?.sectionKey || '',
+        app_mode: createAppMode ? 'create' : '',
+        app_id: configPayload.app_id || '',
       };
     }
 
@@ -2278,7 +2666,11 @@ const webConfigHTML = `<!doctype html>
       const cancelButton = document.getElementById('modal-cancel');
       if (saveButton) {
         saveButton.disabled = saving;
-        saveButton.textContent = saving ? '保存中...' : '保存';
+        if (createAppMode) {
+          saveButton.textContent = saving ? '确定中...' : '确定';
+        } else {
+          saveButton.textContent = saving ? '保存中...' : '保存';
+        }
       }
       if (cancelButton) {
         cancelButton.disabled = saving;
@@ -2295,6 +2687,8 @@ const webConfigHTML = `<!doctype html>
           .split('\n')
           .map((item) => item.trim())
           .filter(Boolean);
+      } else if (modalSection.sectionKey === 'app') {
+        payload.ui.app_name = String(document.querySelector('[data-field="app_name"]').value || '').trim();
       } else if (modalSection.sectionKey === 'ui') {
         payload.ui.default_audit_package = String(document.querySelector('[data-field="default_audit_package"]').value || '').trim();
       } else if (modalSection.sectionKey === 'hooks') {
@@ -2337,6 +2731,10 @@ const webConfigHTML = `<!doctype html>
           setModalStatus(data.error || '保存失败', 'bad');
           return;
         }
+        if (createAppMode) {
+          window.location.href = '/config?app=' + encodeURIComponent(data.app_id || '');
+          return;
+        }
         await loadConfig();
         setModalStatus('配置保存成功。', 'ok');
         setTimeout(() => {
@@ -2348,14 +2746,24 @@ const webConfigHTML = `<!doctype html>
     }
 
     async function loadConfig() {
-      const resp = await fetch('/api/config');
+      const resp = await fetch('/api/config' + window.location.search);
       const data = await resp.json();
       if (!resp.ok) throw new Error(data.error || '读取配置失败');
       configPayload = data;
       if (!configPayload.market_aliases || !Object.keys(configPayload.market_aliases).length) {
         configPayload.market_aliases = {};
       }
+      if (createAppMode) {
+        document.getElementById('config-title').textContent = '新增 App';
+        const desc = document.querySelector('.hero-desc');
+        if (desc) desc.textContent = '这里会创建一个空白 App。请先填写 App 名称，再按顺序补充包名、飞书配置、市场凭证和渠道配置。保存后会自动成为当前主配置。';
+        const saveButton = document.getElementById('modal-save');
+        if (saveButton) saveButton.textContent = '确定';
+      }
       renderGroups();
+      if (createAppMode) {
+        openModal('app', 'app', 'app_name');
+      }
     }
 
     document.addEventListener('click', (event) => {
@@ -2370,6 +2778,7 @@ const webConfigHTML = `<!doctype html>
       if (event.target.id === 'config-modal') closeModal();
     });
 
+    applyCurrentAppTitle();
     loadConfig().catch((err) => {
       document.getElementById('config-groups').innerHTML =
         '<div class="status show bad">读取配置失败：' + escapeHtml(String(err)) + '</div>';
@@ -2733,8 +3142,8 @@ const webAuditHTML = `<!doctype html>
     <section class="hero">
       <div class="hero-top">
         <div class="hero-bar">
-          <h1>Audit</h1>
-          <a class="hero-link" href="/">返回发布页</a>
+          <h1 id="page-title">Audit</h1>
+          <a class="hero-link" href="/upload">返回发布页</a>
         </div>
         <div class="hero-desc">这里单独查询所有已配置市场的审核状态。默认直接使用配置中的包名，不需要额外输入。</div>
         <div class="hero-side">
@@ -2783,6 +3192,17 @@ const webAuditHTML = `<!doctype html>
         .replaceAll('>', '&gt;')
         .replaceAll('"', '&quot;')
         .replaceAll("'", '&#39;');
+    }
+
+    async function applyCurrentAppTitle() {
+      try {
+        const resp = await fetch('/api/app/current');
+        const data = await resp.json();
+        if (!resp.ok) return;
+        const appName = data?.name || 'APKGO';
+        document.getElementById('page-title').textContent = appName + ' Audit';
+        document.title = appName + ' Audit';
+      } catch (_) {}
     }
 
     function setStatus(message, kind) {
@@ -2958,6 +3378,7 @@ const webAuditHTML = `<!doctype html>
     document.getElementById('audit-btn').addEventListener('click', queryAudit);
     document.getElementById('sync-feishu-btn').addEventListener('click', syncAuditToFeishu);
 
+    applyCurrentAppTitle();
     loadConfig()
       .then(() => queryAudit())
       .catch((err) => {
@@ -3260,8 +3681,8 @@ const webHistoryHTML = `<!doctype html>
     <section class="hero">
       <div class="hero-top">
         <div class="hero-bar">
-          <h1>History</h1>
-          <a class="hero-link" href="/">返回发布页</a>
+          <h1 id="page-title">History</h1>
+          <a class="hero-link" href="/upload">返回发布页</a>
         </div>
         <div class="hero-side">
           <div class="hero-stat">
@@ -3274,7 +3695,7 @@ const webHistoryHTML = `<!doctype html>
           </div>
           <div class="hero-stat">
             <strong>Scope</strong>
-            <span>与 CLI history 命令共用同一份记录</span>
+            <span>当前 app 独立持久化，切换 app 时自动同步到主 History</span>
           </div>
         </div>
       </div>
@@ -3302,6 +3723,17 @@ const webHistoryHTML = `<!doctype html>
         .replaceAll('>', '&gt;')
         .replaceAll('"', '&quot;')
         .replaceAll("'", '&#39;');
+    }
+
+    async function applyCurrentAppTitle() {
+      try {
+        const resp = await fetch('/api/app/current');
+        const data = await resp.json();
+        if (!resp.ok) return;
+        const appName = data?.name || 'APKGO';
+        document.getElementById('page-title').textContent = appName + ' History';
+        document.title = appName + ' History';
+      } catch (_) {}
     }
 
     function setStatus(message, kind) {
@@ -3372,6 +3804,7 @@ const webHistoryHTML = `<!doctype html>
       }
     }
 
+    applyCurrentAppTitle();
     loadHistory();
   </script>
 </body>
@@ -3672,7 +4105,7 @@ const webHistoryDetailHTML = `<!doctype html>
   <div class="shell">
     <section class="hero">
       <div class="hero-bar">
-        <h1>History Detail</h1>
+        <h1 id="page-title">History Detail</h1>
         <a class="hero-link" href="/history">返回发布记录</a>
       </div>
     </section>
@@ -3717,6 +4150,17 @@ const webHistoryDetailHTML = `<!doctype html>
         .replaceAll('>', '&gt;')
         .replaceAll('"', '&quot;')
         .replaceAll("'", '&#39;');
+    }
+
+    async function applyCurrentAppTitle() {
+      try {
+        const resp = await fetch('/api/app/current');
+        const data = await resp.json();
+        if (!resp.ok) return;
+        const appName = data?.name || 'APKGO';
+        document.getElementById('page-title').textContent = appName + ' History';
+        document.title = appName + ' History Detail';
+      } catch (_) {}
     }
 
     function setStatus(message, kind) {
@@ -3887,6 +4331,7 @@ const webHistoryDetailHTML = `<!doctype html>
       if (event.target.id === 'delete-modal') closeDeleteModal();
     });
 
+    applyCurrentAppTitle();
     loadDetail();
   </script>
 </body>

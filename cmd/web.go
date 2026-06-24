@@ -20,6 +20,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	apkparser "github.com/KevinGong2013/apkgo/v3/pkg/apk"
 	"github.com/KevinGong2013/apkgo/v3/pkg/apkgo"
 	"github.com/KevinGong2013/apkgo/v3/pkg/config"
 	"github.com/KevinGong2013/apkgo/v3/pkg/history"
@@ -74,8 +75,20 @@ type webConfigStore struct {
 }
 
 type webUIConfig struct {
+	AppName             string            `json:"app_name,omitempty"`
 	DefaultAuditPackage string            `json:"default_audit_package"`
 	ManualURLs          map[string]string `json:"manual_urls"`
+}
+
+type webAppState struct {
+	Current string `json:"current,omitempty"`
+}
+
+type webAppItem struct {
+	ID          string `json:"id"`
+	Name        string `json:"name"`
+	PackageName string `json:"package_name,omitempty"`
+	Selected    bool   `json:"selected"`
 }
 
 type webConfigField struct {
@@ -108,6 +121,7 @@ type webConfigListItem struct {
 	Configured  bool   `json:"configured"`
 	SectionKey  string `json:"section_key"`
 	EditLabel   string `json:"edit_label"`
+	Order       int    `json:"order,omitempty"`
 }
 
 type webConfigDocument struct {
@@ -124,6 +138,8 @@ type webConfigPayload struct {
 	MarketAliases map[string][]string          `json:"market_aliases"`
 	TargetGroup   string                       `json:"target_group,omitempty"`
 	TargetSection string                       `json:"target_section,omitempty"`
+	AppMode       string                       `json:"app_mode,omitempty"`
+	AppID         string                       `json:"app_id,omitempty"`
 	Hooks         struct {
 		FeishuWebhook string `json:"feishu_webhook"`
 	} `json:"hooks"`
@@ -136,6 +152,14 @@ type webConfigFileUpload struct {
 }
 
 var webConfigSections = []webConfigSection{
+	{
+		Key:         "app",
+		DisplayName: "App",
+		Description: "当前 App 的基础信息。",
+		Fields: []webConfigField{
+			{Key: "app_name", Label: "App 名称", Placeholder: "例如：主应用"},
+		},
+	},
 	{
 		Key:         "hooks",
 		DisplayName: "通知",
@@ -275,11 +299,17 @@ var webCmd = &cobra.Command{
 	Short: "Start the local web UI",
 	RunE: func(cmd *cobra.Command, args []string) error {
 		mux := http.NewServeMux()
-		mux.HandleFunc("/", handleWebIndex)
+		mux.HandleFunc("/", handleWebAppsPage)
+		mux.HandleFunc("/apps", handleWebAppsPage)
+		mux.HandleFunc("/upload", handleWebUploadPage)
 		mux.HandleFunc("/audit", handleWebAuditPage)
 		mux.HandleFunc("/config", handleWebConfigPage)
 		mux.HandleFunc("/history", handleWebHistoryPage)
 		mux.HandleFunc("/history/detail", handleWebHistoryDetailPage)
+		mux.HandleFunc("/api/apps", handleWebApps)
+		mux.HandleFunc("/api/app/current", handleWebCurrentApp)
+		mux.HandleFunc("/api/apps/select", handleWebAppSelect)
+		mux.HandleFunc("/api/apps/delete", handleWebAppDelete)
 		mux.HandleFunc("/api/audit", handleWebAudit)
 		mux.HandleFunc("/api/audit/sync-feishu", handleWebAuditSyncFeishu)
 		mux.HandleFunc("/api/config", handleWebConfig)
@@ -300,15 +330,6 @@ var webCmd = &cobra.Command{
 		fmt.Fprintf(os.Stderr, "Open http://%s\n", flagWebAddr)
 		return srv.ListenAndServe()
 	},
-}
-
-func handleWebIndex(w http.ResponseWriter, r *http.Request) {
-	if r.URL.Path != "/" {
-		http.NotFound(w, r)
-		return
-	}
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	io.WriteString(w, webIndexHTML)
 }
 
 func handleWebAuditPage(w http.ResponseWriter, r *http.Request) {
@@ -366,19 +387,42 @@ func handleWebConfig(w http.ResponseWriter, r *http.Request) {
 		writeWebError(w, http.StatusMethodNotAllowed, "请求方法不支持")
 		return
 	}
-	doc, err := loadWebEditableConfig()
-	if err != nil {
-		writeWebError(w, http.StatusInternalServerError, err.Error())
-		return
+	appID := strings.TrimSpace(r.URL.Query().Get("app"))
+	createMode := strings.TrimSpace(r.URL.Query().Get("mode")) == "create-app"
+	if !createMode && appID == "" {
+		state, err := loadWebAppsState()
+		if err != nil {
+			writeWebError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		appID = strings.TrimSpace(state.Current)
 	}
-	cfg, err := loadWebConfig()
-	if err != nil {
+
+	var (
+		doc *webConfigDocument
+		err error
+		cfg *config.Config
+	)
+	if createMode {
+		doc = newWebConfigDocument()
 		cfg = &config.Config{Stores: map[string]map[string]string{}}
+	} else {
+		doc, err = loadWebEditableConfigForApp(appID)
+		if err != nil {
+			writeWebError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		cfg, err = loadWebConfigForApp(appID)
+		if err != nil {
+			cfg = &config.Config{Stores: map[string]map[string]string{}}
+		}
 	}
 	stores := visibleWebStores(cfg)
 	sections := buildWebConfigSections()
 	writeWebJSON(w, http.StatusOK, map[string]any{
 		"path":              flagConfig,
+		"app_id":            appID,
+		"current_app":       firstNonEmpty(strings.TrimSpace(doc.UI.AppName), appID),
 		"configured_stores": stores,
 		"ui":                doc.UI,
 		"hooks": map[string]any{
@@ -388,6 +432,129 @@ func handleWebConfig(w http.ResponseWriter, r *http.Request) {
 		"market_aliases": doc.MarketAliases,
 		"items":          buildWebConfigListItems(doc),
 		"sections":       sections,
+	})
+}
+
+func handleWebAppsPage(w http.ResponseWriter, r *http.Request) {
+	if r.URL.Path != "/" && r.URL.Path != "/apps" {
+		http.NotFound(w, r)
+		return
+	}
+	w.Header().Set("Cache-Control", "no-store, no-cache, must-revalidate")
+	w.Header().Set("Pragma", "no-cache")
+	w.Header().Set("Expires", "0")
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	io.WriteString(w, webAppsHTML)
+}
+
+func handleWebUploadPage(w http.ResponseWriter, r *http.Request) {
+	if r.URL.Path != "/upload" {
+		http.NotFound(w, r)
+		return
+	}
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	io.WriteString(w, webUploadHTML)
+}
+
+func handleWebApps(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		writeWebError(w, http.StatusMethodNotAllowed, "请求方法不支持")
+		return
+	}
+	w.Header().Set("Cache-Control", "no-store, no-cache, must-revalidate")
+	w.Header().Set("Pragma", "no-cache")
+	w.Header().Set("Expires", "0")
+	items, current, err := listWebApps()
+	if err != nil {
+		writeWebError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeWebJSON(w, http.StatusOK, map[string]any{
+		"apps":    items,
+		"current": current,
+	})
+}
+
+func handleWebAppSelect(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		writeWebError(w, http.StatusMethodNotAllowed, "请求方法不支持")
+		return
+	}
+	var payload struct {
+		ID string `json:"id"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+		writeWebError(w, http.StatusBadRequest, fmt.Sprintf("解析参数失败: %v", err))
+		return
+	}
+	item, err := selectWebApp(strings.TrimSpace(payload.ID))
+	if err != nil {
+		writeWebError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	writeWebJSON(w, http.StatusOK, map[string]any{
+		"ok":  true,
+		"app": item,
+	})
+}
+
+func handleWebAppDelete(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		writeWebError(w, http.StatusMethodNotAllowed, "请求方法不支持")
+		return
+	}
+	var payload struct {
+		ID string `json:"id"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+		writeWebError(w, http.StatusBadRequest, fmt.Sprintf("解析参数失败: %v", err))
+		return
+	}
+	if err := deleteWebApp(strings.TrimSpace(payload.ID)); err != nil {
+		writeWebError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	items, current, err := listWebApps()
+	if err != nil {
+		writeWebError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeWebJSON(w, http.StatusOK, map[string]any{
+		"ok":      true,
+		"apps":    items,
+		"current": current,
+	})
+}
+
+func handleWebCurrentApp(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		writeWebError(w, http.StatusMethodNotAllowed, "请求方法不支持")
+		return
+	}
+	w.Header().Set("Cache-Control", "no-store, no-cache, must-revalidate")
+	w.Header().Set("Pragma", "no-cache")
+	w.Header().Set("Expires", "0")
+	state, err := loadWebAppsState()
+	if err != nil {
+		writeWebError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	appID := strings.TrimSpace(state.Current)
+	if appID == "" {
+		writeWebJSON(w, http.StatusOK, map[string]any{
+			"id":   "",
+			"name": "",
+		})
+		return
+	}
+	doc, err := loadWebEditableConfigAt(webAppConfigPath(appID))
+	if err != nil {
+		writeWebError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeWebJSON(w, http.StatusOK, map[string]any{
+		"id":   appID,
+		"name": firstNonEmpty(strings.TrimSpace(doc.UI.AppName), appID),
 	})
 }
 
@@ -408,13 +575,22 @@ func handleWebConfigSave(w http.ResponseWriter, r *http.Request) {
 	}
 	defer cleanupUploads()
 
-	doc, err := loadWebEditableConfig()
-	if err != nil {
-		writeWebError(w, http.StatusInternalServerError, err.Error())
-		return
+	appMode := strings.TrimSpace(payload.AppMode)
+	targetAppID := strings.TrimSpace(payload.AppID)
+
+	var doc *webConfigDocument
+	if appMode == "create" {
+		doc = newWebConfigDocument()
+	} else {
+		doc, err = loadWebEditableConfigForApp(targetAppID)
+		if err != nil {
+			writeWebError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
 	}
 
 	doc.UI = payload.UI
+	doc.UI.AppName = strings.TrimSpace(doc.UI.AppName)
 	if doc.UI.ManualURLs == nil {
 		doc.UI.ManualURLs = map[string]string{}
 	}
@@ -475,18 +651,50 @@ func handleWebConfigSave(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := saveWebEditableConfig(doc); err != nil {
+	resultAppID := targetAppID
+	if appMode == "create" {
+		if doc.UI.AppName == "" {
+			writeWebError(w, http.StatusBadRequest, "请先填写 App 名称")
+			return
+		}
+		appID := sanitizeWebAppID(doc.UI.AppName)
+		if appID == "" {
+			writeWebError(w, http.StatusBadRequest, "App 名称格式不合法")
+			return
+		}
+		if _, err := os.Stat(webAppConfigPath(appID)); err == nil {
+			writeWebError(w, http.StatusBadRequest, "同名 App 已存在")
+			return
+		} else if err != nil && !errors.Is(err, os.ErrNotExist) {
+			writeWebError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		if err := saveWebEditableConfigAt(webAppConfigPath(appID), doc); err != nil {
+			writeWebError(w, http.StatusInternalServerError, fmt.Sprintf("save app config: %v", err))
+			return
+		}
+		if err := ensureEmptyLocalFile(webAppHistoryPath(appID)); err != nil {
+			writeWebError(w, http.StatusInternalServerError, fmt.Sprintf("init app history: %v", err))
+			return
+		}
+		if _, err := selectWebApp(appID); err != nil {
+			writeWebError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		resultAppID = appID
+	} else if err := saveWebEditableConfigForApp(targetAppID, doc); err != nil {
 		writeWebError(w, http.StatusInternalServerError, fmt.Sprintf("save config: %v", err))
 		return
 	}
 
-	cfg, err := loadWebConfig()
+	cfg, err := loadWebConfigForApp(resultAppID)
 	if err != nil {
 		cfg = &config.Config{Stores: map[string]map[string]string{}}
 	}
 	writeWebJSON(w, http.StatusOK, map[string]any{
 		"ok":                true,
 		"path":              flagConfig,
+		"app_id":            resultAppID,
 		"configured_stores": visibleWebStores(cfg),
 	})
 }
@@ -497,19 +705,24 @@ func handleWebHistory(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	records, err := history.Read(history.DefaultPath())
+	records, err := history.Read(mainWebHistoryPath())
 	if err != nil {
 		writeWebError(w, http.StatusInternalServerError, fmt.Sprintf("read history: %v", err))
 		return
 	}
 
+	currentCfg, err := loadWebConfig()
+	if err != nil {
+		currentCfg = &config.Config{Stores: map[string]map[string]string{}}
+	}
 	items := make([]webHistoryItem, 0, len(records))
 	for i := len(records) - 1; i >= 0; i-- {
 		items = append(items, newWebHistoryItem(records[i]))
 	}
 
 	writeWebJSON(w, http.StatusOK, map[string]any{
-		"path":    history.DefaultPath(),
+		"path":    mainWebHistoryPath(),
+		"stores":  visibleWebStores(currentCfg),
 		"records": items,
 	})
 }
@@ -532,13 +745,17 @@ func handleWebHistoryDelete(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	err := history.DeleteByTimestamp(history.DefaultPath(), strings.TrimSpace(payload.Timestamp))
+	err := history.DeleteByTimestamp(mainWebHistoryPath(), strings.TrimSpace(payload.Timestamp))
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
 			writeWebError(w, http.StatusNotFound, "没有找到要删除的记录")
 			return
 		}
 		writeWebError(w, http.StatusInternalServerError, fmt.Sprintf("删除记录失败: %v", err))
+		return
+	}
+	if err := syncSelectedWebAppHistoryFromMain(); err != nil {
+		writeWebError(w, http.StatusInternalServerError, fmt.Sprintf("sync app history: %v", err))
 		return
 	}
 
@@ -764,6 +981,512 @@ func parseWebConfigSaveRequest(r *http.Request) (webConfigPayload, []webConfigFi
 	return payload, nil, func() {}, nil
 }
 
+func mainWebConfigPath() string {
+	return filepath.Clean(flagConfig)
+}
+
+func mainWebHistoryPath() string {
+	return history.DefaultPath()
+}
+
+func webAppsDir() string {
+	return filepath.Join(filepath.Dir(mainWebConfigPath()), "apps")
+}
+
+func webAppsStatePath() string {
+	return filepath.Join(webAppsDir(), ".current.json")
+}
+
+func sanitizeWebAppID(name string) string {
+	name = strings.TrimSpace(strings.ToLower(name))
+	if name == "" {
+		return ""
+	}
+	var b strings.Builder
+	lastDash := false
+	for _, r := range name {
+		ok := (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9')
+		if ok {
+			b.WriteRune(r)
+			lastDash = false
+			continue
+		}
+		if !lastDash {
+			b.WriteByte('-')
+			lastDash = true
+		}
+	}
+	out := strings.Trim(b.String(), "-")
+	return out
+}
+
+func webAppConfigPath(appID string) string {
+	return filepath.Join(webAppsDir(), appID+".json")
+}
+
+func webAppHistoryPath(appID string) string {
+	return filepath.Join(webAppsDir(), appID+".history.jsonl")
+}
+
+func mainWebConfigDir() string {
+	return filepath.Dir(mainWebConfigPath())
+}
+
+func mainWebConfigAssetDir() string {
+	return mainWebConfigDir()
+}
+
+func ensureWebAppsInitialized() error {
+	if flagCredsFrom != "" {
+		return nil
+	}
+	if err := os.MkdirAll(webAppsDir(), 0755); err != nil {
+		return fmt.Errorf("创建 app 配置目录失败: %w", err)
+	}
+	if _, err := os.Stat(webAppsStatePath()); err != nil && !errors.Is(err, os.ErrNotExist) {
+		return fmt.Errorf("读取 app 状态失败: %w", err)
+	}
+
+	if _, err := os.Stat(webAppsStatePath()); errors.Is(err, os.ErrNotExist) {
+		if _, err := os.Stat(mainWebConfigPath()); errors.Is(err, os.ErrNotExist) {
+			if err := writeWebAppsState(webAppState{}); err != nil {
+				return err
+			}
+			return ensureWebAppHistoryFiles("")
+		} else if err != nil {
+			return fmt.Errorf("读取主配置失败: %w", err)
+		}
+
+		doc, err := loadWebEditableConfigAt(mainWebConfigPath())
+		if err != nil {
+			return err
+		}
+		name := strings.TrimSpace(doc.UI.AppName)
+		if name == "" {
+			name = "默认应用"
+			doc.UI.AppName = name
+			if err := saveWebEditableConfigAt(mainWebConfigPath(), doc); err != nil {
+				return err
+			}
+		}
+		appID := sanitizeWebAppID(name)
+		if appID == "" {
+			appID = "default-app"
+		}
+		if err := copyLocalFile(mainWebConfigPath(), webAppConfigPath(appID)); err != nil {
+			return fmt.Errorf("初始化 app 配置失败: %w", err)
+		}
+		if err := copyFileOrCreateEmpty(mainWebHistoryPath(), webAppHistoryPath(appID)); err != nil {
+			return fmt.Errorf("初始化 app 历史失败: %w", err)
+		}
+		if err := writeWebAppsState(webAppState{Current: appID}); err != nil {
+			return err
+		}
+	}
+
+	state, err := loadWebAppsStateFile()
+	if err != nil {
+		return err
+	}
+	return ensureWebAppHistoryFiles(strings.TrimSpace(state.Current))
+}
+
+func loadWebAppsState() (webAppState, error) {
+	if err := ensureWebAppsInitialized(); err != nil {
+		return webAppState{}, err
+	}
+	return loadWebAppsStateFile()
+}
+
+func loadWebAppsStateFile() (webAppState, error) {
+	data, err := os.ReadFile(webAppsStatePath())
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return webAppState{}, nil
+		}
+		return webAppState{}, fmt.Errorf("读取 app 状态失败: %w", err)
+	}
+	var state webAppState
+	if err := json.Unmarshal(data, &state); err != nil {
+		return webAppState{}, fmt.Errorf("解析 app 状态失败: %w", err)
+	}
+	return state, nil
+}
+
+func writeWebAppsState(state webAppState) error {
+	if err := os.MkdirAll(webAppsDir(), 0755); err != nil {
+		return fmt.Errorf("创建 app 配置目录失败: %w", err)
+	}
+	data, err := json.MarshalIndent(state, "", "  ")
+	if err != nil {
+		return err
+	}
+	data = append(data, '\n')
+	return os.WriteFile(webAppsStatePath(), data, 0644)
+}
+
+func ensureWebAppHistoryFiles(currentAppID string) error {
+	entries, err := os.ReadDir(webAppsDir())
+	if err != nil {
+		return fmt.Errorf("读取 app 配置目录失败: %w", err)
+	}
+	for _, entry := range entries {
+		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".json") || strings.HasPrefix(entry.Name(), ".") {
+			continue
+		}
+		appID := strings.TrimSuffix(entry.Name(), ".json")
+		historyPath := webAppHistoryPath(appID)
+		if _, err := os.Stat(historyPath); errors.Is(err, os.ErrNotExist) {
+			if appID == currentAppID {
+				if err := copyFileOrCreateEmpty(mainWebHistoryPath(), historyPath); err != nil {
+					return err
+				}
+			} else if err := ensureEmptyLocalFile(historyPath); err != nil {
+				return err
+			}
+		} else if err != nil {
+			return err
+		}
+	}
+	if currentAppID != "" {
+		if _, err := os.Stat(mainWebHistoryPath()); errors.Is(err, os.ErrNotExist) {
+			if err := copyFileOrCreateEmpty(webAppHistoryPath(currentAppID), mainWebHistoryPath()); err != nil {
+				return err
+			}
+		} else if err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func newWebConfigDocument() *webConfigDocument {
+	return &webConfigDocument{
+		Hooks:         map[string]map[string]string{},
+		MarketAliases: map[string][]string{},
+		UI: webUIConfig{
+			ManualURLs: map[string]string{},
+		},
+		Stores: map[string]map[string]string{},
+	}
+}
+
+func loadWebEditableConfigAt(path string) (*webConfigDocument, error) {
+	doc := newWebConfigDocument()
+	if flagCredsFrom != "" {
+		return doc, nil
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return doc, nil
+		}
+		return nil, fmt.Errorf("read web config: %w", err)
+	}
+	var raw map[string]json.RawMessage
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return nil, fmt.Errorf("parse web config: %w", err)
+	}
+
+	if v, ok := raw["hooks"]; ok {
+		var hooks map[string]string
+		if err := json.Unmarshal(v, &hooks); err == nil {
+			for k, value := range hooks {
+				doc.Hooks[k] = map[string]string{"command": value}
+			}
+		}
+	}
+	if v, ok := raw["market_aliases"]; ok {
+		_ = json.Unmarshal(v, &doc.MarketAliases)
+	}
+	if v, ok := raw["ui"]; ok {
+		_ = json.Unmarshal(v, &doc.UI)
+		if doc.UI.ManualURLs == nil {
+			doc.UI.ManualURLs = map[string]string{}
+		}
+	}
+	if v, ok := raw["update_check"]; ok {
+		_ = json.Unmarshal(v, &doc.UpdateCheck)
+	}
+	for key, blob := range raw {
+		if _, reserved := map[string]bool{
+			"hooks": true, "market_aliases": true, "ui": true, "update_check": true, "stores": true,
+		}[key]; reserved {
+			continue
+		}
+		var values map[string]string
+		if err := json.Unmarshal(blob, &values); err == nil {
+			doc.Stores[key] = values
+		}
+	}
+	return doc, nil
+}
+
+func saveWebEditableConfigAt(path string, doc *webConfigDocument) error {
+	out := map[string]any{}
+	if len(doc.Hooks) > 0 {
+		hooks := map[string]string{}
+		for key, values := range doc.Hooks {
+			if command := strings.TrimSpace(values["command"]); command != "" {
+				hooks[key] = command
+			}
+		}
+		if len(hooks) > 0 {
+			out["hooks"] = hooks
+		}
+	}
+	if len(doc.MarketAliases) > 0 {
+		out["market_aliases"] = doc.MarketAliases
+	}
+	if strings.TrimSpace(doc.UI.AppName) != "" || strings.TrimSpace(doc.UI.DefaultAuditPackage) != "" || len(doc.UI.ManualURLs) > 0 {
+		out["ui"] = doc.UI
+	}
+	if strings.TrimSpace(doc.UpdateCheck) != "" {
+		out["update_check"] = doc.UpdateCheck
+	}
+	for storeKey, rawValues := range doc.Stores {
+		values := map[string]string{}
+		for key, value := range rawValues {
+			if trimmed := strings.TrimSpace(value); trimmed != "" {
+				values[key] = trimmed
+			}
+		}
+		if len(values) > 0 {
+			out[storeKey] = values
+		}
+	}
+	data, err := json.MarshalIndent(out, "", "  ")
+	if err != nil {
+		return err
+	}
+	data = append(data, '\n')
+	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
+		return err
+	}
+	return os.WriteFile(path, data, 0644)
+}
+
+func normalizeWebAppID(appID string) string {
+	return strings.TrimSpace(appID)
+}
+
+func loadWebEditableConfigForApp(appID string) (*webConfigDocument, error) {
+	appID = normalizeWebAppID(appID)
+	if appID == "" {
+		return loadWebEditableConfig()
+	}
+	return loadWebEditableConfigAt(webAppConfigPath(appID))
+}
+
+func saveWebEditableConfigForApp(appID string, doc *webConfigDocument) error {
+	appID = normalizeWebAppID(appID)
+	if appID == "" {
+		return saveWebEditableConfig(doc)
+	}
+	if err := saveWebEditableConfigAt(webAppConfigPath(appID), doc); err != nil {
+		return err
+	}
+	state, err := loadWebAppsState()
+	if err != nil {
+		return err
+	}
+	if state.Current != appID {
+		return nil
+	}
+	return saveWebEditableConfigAt(mainWebConfigPath(), doc)
+}
+
+func loadWebEditableConfig() (*webConfigDocument, error) {
+	return loadWebEditableConfigAt(mainWebConfigPath())
+}
+
+func saveWebEditableConfig(doc *webConfigDocument) error {
+	if err := saveWebEditableConfigAt(mainWebConfigPath(), doc); err != nil {
+		return err
+	}
+	state, err := loadWebAppsState()
+	if err != nil {
+		return err
+	}
+	current := strings.TrimSpace(state.Current)
+	if current == "" {
+		return nil
+	}
+	return saveWebEditableConfigAt(webAppConfigPath(current), doc)
+}
+
+func loadWebConfigForApp(appID string) (*config.Config, error) {
+	appID = normalizeWebAppID(appID)
+	if appID == "" {
+		return loadWebConfig()
+	}
+	doc, err := loadWebEditableConfigAt(webAppConfigPath(appID))
+	if err != nil {
+		return nil, err
+	}
+	cfg := &config.Config{
+		Stores:        map[string]map[string]string{},
+		MarketAliases: map[string][]string{},
+	}
+	if doc == nil {
+		return cfg, nil
+	}
+	for storeKey, values := range doc.Stores {
+		clean := map[string]string{}
+		for key, value := range values {
+			if trimmed := strings.TrimSpace(value); trimmed != "" {
+				clean[key] = trimmed
+			}
+		}
+		if len(clean) > 0 {
+			cfg.Stores[storeKey] = clean
+		}
+	}
+	for key, aliases := range doc.MarketAliases {
+		out := make([]string, 0, len(aliases))
+		for _, alias := range aliases {
+			if trimmed := strings.TrimSpace(alias); trimmed != "" {
+				out = append(out, trimmed)
+			}
+		}
+		if len(out) > 0 {
+			cfg.MarketAliases[key] = out
+		}
+	}
+	if after := strings.TrimSpace(doc.Hooks["after"]["command"]); after != "" {
+		cfg.Hooks.After = after
+	}
+	if before := strings.TrimSpace(doc.Hooks["before"]["command"]); before != "" {
+		cfg.Hooks.Before = before
+	}
+	cfg.UpdateCheck = strings.TrimSpace(doc.UpdateCheck)
+	return cfg, nil
+}
+
+func listWebApps() ([]webAppItem, string, error) {
+	state, err := loadWebAppsState()
+	if err != nil {
+		return nil, "", err
+	}
+	entries, err := os.ReadDir(webAppsDir())
+	if err != nil {
+		return nil, "", fmt.Errorf("读取 app 配置目录失败: %w", err)
+	}
+	items := make([]webAppItem, 0, len(entries))
+	for _, entry := range entries {
+		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".json") || strings.HasPrefix(entry.Name(), ".") {
+			continue
+		}
+		appID := strings.TrimSuffix(entry.Name(), ".json")
+		doc, err := loadWebEditableConfigAt(filepath.Join(webAppsDir(), entry.Name()))
+		if err != nil {
+			return nil, "", err
+		}
+		name := strings.TrimSpace(doc.UI.AppName)
+		if name == "" {
+			name = appID
+		}
+		items = append(items, webAppItem{
+			ID:          appID,
+			Name:        name,
+			PackageName: strings.TrimSpace(doc.UI.DefaultAuditPackage),
+			Selected:    appID == state.Current,
+		})
+	}
+	slices.SortFunc(items, func(a, b webAppItem) int {
+		if a.Selected != b.Selected {
+			if a.Selected {
+				return -1
+			}
+			return 1
+		}
+		return strings.Compare(a.Name, b.Name)
+	})
+	return items, state.Current, nil
+}
+
+func selectWebApp(appID string) (*webAppItem, error) {
+	if appID == "" {
+		return nil, fmt.Errorf("缺少 app")
+	}
+	src := webAppConfigPath(appID)
+	if _, err := os.Stat(src); err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return nil, fmt.Errorf("app 不存在")
+		}
+		return nil, err
+	}
+	if err := copyLocalFile(src, mainWebConfigPath()); err != nil {
+		return nil, fmt.Errorf("切换主配置失败: %w", err)
+	}
+	if err := copyFileOrCreateEmpty(webAppHistoryPath(appID), mainWebHistoryPath()); err != nil {
+		return nil, fmt.Errorf("切换主历史失败: %w", err)
+	}
+	if err := writeWebAppsState(webAppState{Current: appID}); err != nil {
+		return nil, err
+	}
+	doc, err := loadWebEditableConfigAt(src)
+	if err != nil {
+		return nil, err
+	}
+	item := &webAppItem{
+		ID:          appID,
+		Name:        firstNonEmpty(strings.TrimSpace(doc.UI.AppName), appID),
+		PackageName: strings.TrimSpace(doc.UI.DefaultAuditPackage),
+		Selected:    true,
+	}
+	return item, nil
+}
+
+func deleteWebApp(appID string) error {
+	if appID == "" {
+		return fmt.Errorf("缺少 app")
+	}
+	items, current, err := listWebApps()
+	if err != nil {
+		return err
+	}
+	if len(items) <= 1 {
+		return fmt.Errorf("至少保留一个 app")
+	}
+	if err := os.Remove(webAppConfigPath(appID)); err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return fmt.Errorf("app 不存在")
+		}
+		return fmt.Errorf("删除 app 失败: %w", err)
+	}
+	if err := os.Remove(webAppHistoryPath(appID)); err != nil && !errors.Is(err, os.ErrNotExist) {
+		return fmt.Errorf("删除 app history 失败: %w", err)
+	}
+	if current != appID {
+		return nil
+	}
+	remaining, _, err := listWebApps()
+	if err != nil {
+		return err
+	}
+	if len(remaining) == 0 {
+		if err := writeWebAppsState(webAppState{}); err != nil {
+			return err
+		}
+		return nil
+	}
+	_, err = selectWebApp(remaining[0].ID)
+	return err
+}
+
+func syncSelectedWebAppHistoryFromMain() error {
+	state, err := loadWebAppsState()
+	if err != nil {
+		return err
+	}
+	current := strings.TrimSpace(state.Current)
+	if current == "" {
+		return nil
+	}
+	return copyFileOrCreateEmpty(mainWebHistoryPath(), webAppHistoryPath(current))
+}
+
 func saveWebConfigUploadedFiles(r *http.Request) ([]webConfigFileUpload, func(), error) {
 	if r.MultipartForm == nil {
 		return nil, func() {}, nil
@@ -841,7 +1564,7 @@ func applyWebConfigFileUploads(doc *webConfigDocument, uploads []webConfigFileUp
 
 func persistWebConfigUploads(doc *webConfigDocument, uploads []webConfigFileUpload) error {
 	for _, upload := range uploads {
-		dest := filepath.Clean(filepath.Join(filepath.Dir(flagConfig), filepath.Base(webConfigUploadedFileTargetPath(upload.Store, upload.File.Name))))
+		dest := filepath.Clean(filepath.Join(mainWebConfigAssetDir(), filepath.Base(webConfigUploadedFileTargetPath(upload.Store, upload.File.Name))))
 		if err := os.MkdirAll(filepath.Dir(dest), 0755); err != nil {
 			return err
 		}
@@ -882,105 +1605,6 @@ func webConfigUploadedFileTargetPath(storeKey, originalName string) string {
 	default:
 		return "./config/" + name
 	}
-}
-
-func loadWebEditableConfig() (*webConfigDocument, error) {
-	doc := &webConfigDocument{
-		Hooks:         map[string]map[string]string{},
-		MarketAliases: map[string][]string{},
-		UI: webUIConfig{
-			ManualURLs: map[string]string{},
-		},
-		Stores: map[string]map[string]string{},
-	}
-	if flagCredsFrom != "" {
-		return doc, nil
-	}
-	data, err := os.ReadFile(flagConfig)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return doc, nil
-		}
-		return nil, fmt.Errorf("read web config: %w", err)
-	}
-	var raw map[string]json.RawMessage
-	if err := json.Unmarshal(data, &raw); err != nil {
-		return nil, fmt.Errorf("parse web config: %w", err)
-	}
-
-	if v, ok := raw["hooks"]; ok {
-		var hooks map[string]string
-		if err := json.Unmarshal(v, &hooks); err == nil {
-			for k, value := range hooks {
-				doc.Hooks[k] = map[string]string{"command": value}
-			}
-		}
-	}
-	if v, ok := raw["market_aliases"]; ok {
-		_ = json.Unmarshal(v, &doc.MarketAliases)
-	}
-	if v, ok := raw["ui"]; ok {
-		_ = json.Unmarshal(v, &doc.UI)
-		if doc.UI.ManualURLs == nil {
-			doc.UI.ManualURLs = map[string]string{}
-		}
-	}
-	if v, ok := raw["update_check"]; ok {
-		_ = json.Unmarshal(v, &doc.UpdateCheck)
-	}
-	for key, blob := range raw {
-		if _, reserved := map[string]bool{
-			"hooks": true, "market_aliases": true, "ui": true, "update_check": true, "stores": true,
-		}[key]; reserved {
-			continue
-		}
-		var values map[string]string
-		if err := json.Unmarshal(blob, &values); err == nil {
-			doc.Stores[key] = values
-		}
-	}
-	return doc, nil
-}
-
-func saveWebEditableConfig(doc *webConfigDocument) error {
-	out := map[string]any{}
-	if len(doc.Hooks) > 0 {
-		hooks := map[string]string{}
-		for key, values := range doc.Hooks {
-			if command := strings.TrimSpace(values["command"]); command != "" {
-				hooks[key] = command
-			}
-		}
-		if len(hooks) > 0 {
-			out["hooks"] = hooks
-		}
-	}
-	if len(doc.MarketAliases) > 0 {
-		out["market_aliases"] = doc.MarketAliases
-	}
-	if strings.TrimSpace(doc.UI.DefaultAuditPackage) != "" || len(doc.UI.ManualURLs) > 0 {
-		out["ui"] = doc.UI
-	}
-	if strings.TrimSpace(doc.UpdateCheck) != "" {
-		out["update_check"] = doc.UpdateCheck
-	}
-	for storeKey, rawValues := range doc.Stores {
-		values := map[string]string{}
-		for key, value := range rawValues {
-			if trimmed := strings.TrimSpace(value); trimmed != "" {
-				values[key] = trimmed
-			}
-		}
-		if len(values) > 0 {
-			out[storeKey] = values
-		}
-	}
-	data, err := json.MarshalIndent(out, "", "  ")
-	if err != nil {
-		return err
-	}
-	data = append(data, '\n')
-	return os.WriteFile(flagConfig, data, 0644)
 }
 
 func loadWebUIConfig() webUIConfig {
@@ -1090,6 +1714,18 @@ func buildWebConfigListItems(doc *webConfigDocument) []webConfigListItem {
 	storeItems := make([]webConfigListItem, 0, len(webStoreFieldMetaMap))
 	for _, section := range buildWebConfigSections() {
 		switch section.Key {
+		case "app":
+			configured := !isPlaceholderValue(doc.UI.AppName)
+			items = append(items, webConfigListItem{
+				GroupKey:    "app",
+				Key:         "app_name",
+				DisplayName: "App 名称",
+				Summary:     ternarySummary(configured, doc.UI.AppName, "未配置"),
+				Configured:  configured,
+				SectionKey:  section.Key,
+				EditLabel:   "编辑",
+				Order:       1,
+			})
 		case "hooks":
 			webhook := extractFeishuWebhook(doc.Hooks["after"]["command"])
 			configured := !isPlaceholderValue(webhook)
@@ -1101,6 +1737,7 @@ func buildWebConfigListItems(doc *webConfigDocument) []webConfigListItem {
 				Configured:  configured,
 				SectionKey:  section.Key,
 				EditLabel:   "编辑",
+				Order:       3,
 			})
 		case "ui":
 			configured := !isPlaceholderValue(doc.UI.DefaultAuditPackage)
@@ -1112,6 +1749,7 @@ func buildWebConfigListItems(doc *webConfigDocument) []webConfigListItem {
 				Configured:  configured,
 				SectionKey:  section.Key,
 				EditLabel:   "编辑",
+				Order:       2,
 			})
 		default:
 			configured := hasConfiguredValues(doc.Stores[section.Key])
@@ -1124,6 +1762,7 @@ func buildWebConfigListItems(doc *webConfigDocument) []webConfigListItem {
 				Configured:  configured,
 				SectionKey:  section.Key,
 				EditLabel:   "编辑",
+				Order:       4,
 			})
 		}
 	}
@@ -1161,6 +1800,7 @@ func buildWebConfigListItems(doc *webConfigDocument) []webConfigListItem {
 			Configured:  len(aliases[key]) > 0,
 			SectionKey:  key,
 			EditLabel:   "编辑",
+			Order:       5,
 		})
 	}
 	return items
@@ -1578,8 +2218,15 @@ func buildAPKBundle(cfg *config.Config, files []webUploadedFile) (*webArchiveBun
 		AutoDetected: true,
 	}
 
+	validateSingleAPK := len(files) == 1
 	for _, file := range files {
 		base := filepath.Base(file.Name)
+		if validateSingleAPK {
+			if _, err := apkparser.Parse(file.Path); err != nil {
+				cleanup()
+				return nil, fmt.Errorf("上传的 APK 文件无效：%s", base)
+			}
+		}
 		meta, ok := detectChannelFromName(cfg, base)
 		if !ok {
 			continue
@@ -1718,6 +2365,9 @@ func copyLocalFile(srcPath, destPath string) error {
 	}
 	defer src.Close()
 
+	if err := os.MkdirAll(filepath.Dir(destPath), 0755); err != nil {
+		return err
+	}
 	out, err := os.Create(destPath)
 	if err != nil {
 		return err
@@ -1726,6 +2376,22 @@ func copyLocalFile(srcPath, destPath string) error {
 
 	_, err = io.Copy(out, src)
 	return err
+}
+
+func ensureEmptyLocalFile(path string) error {
+	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
+		return err
+	}
+	return os.WriteFile(path, nil, 0644)
+}
+
+func copyFileOrCreateEmpty(srcPath, destPath string) error {
+	if _, err := os.Stat(srcPath); errors.Is(err, os.ErrNotExist) {
+		return ensureEmptyLocalFile(destPath)
+	} else if err != nil {
+		return err
+	}
+	return copyLocalFile(srcPath, destPath)
 }
 
 func detectChannelFromName(cfg *config.Config, name string) (webArtifact, bool) {
@@ -1988,11 +2654,12 @@ func appendWebHistory(results []webStoreRunResult, notes, publishMode, publishTi
 		return
 	}
 
+	saved := false
 	for _, entry := range results {
 		if entry.Result == nil || entry.Result.APK == nil || len(entry.Result.Results) == 0 {
 			continue
 		}
-		err := history.AppendWithMeta(history.DefaultPath(), entry.Result.APK, entry.Result.Results, history.Meta{
+		err := history.AppendWithMeta(mainWebHistoryPath(), entry.Result.APK, entry.Result.Results, history.Meta{
 			Notes:       strings.TrimSpace(notes),
 			PublishMode: strings.TrimSpace(publishMode),
 			PublishTime: strings.TrimSpace(publishTime),
@@ -2001,6 +2668,16 @@ func appendWebHistory(results []webStoreRunResult, notes, publishMode, publishTi
 			emit(webStreamEvent{
 				Type:    "log",
 				Message: fmt.Sprintf("[history] 保存 %s 发布记录失败：%v", entry.DisplayName, err),
+			})
+			continue
+		}
+		saved = true
+	}
+	if saved {
+		if err := syncSelectedWebAppHistoryFromMain(); err != nil {
+			emit(webStreamEvent{
+				Type:    "log",
+				Message: fmt.Sprintf("[history] 同步当前 App 历史失败：%v", err),
 			})
 		}
 	}

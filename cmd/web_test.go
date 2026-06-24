@@ -3,6 +3,7 @@ package cmd
 import (
 	"bytes"
 	"encoding/json"
+	"io"
 	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
@@ -11,7 +12,9 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/KevinGong2013/apkgo/v3/pkg/apk"
 	"github.com/KevinGong2013/apkgo/v3/pkg/config"
+	"github.com/KevinGong2013/apkgo/v3/pkg/history"
 )
 
 func TestDetectChannelFromName_UsesConfigAliases(t *testing.T) {
@@ -43,38 +46,6 @@ func TestDetectChannelFromName_UsesOverrideAliases(t *testing.T) {
 	}
 }
 
-func TestBuildAPKBundle_ManualSelectionFallbackForSingleFile(t *testing.T) {
-	tmp := t.TempDir()
-	apkPath := filepath.Join(tmp, "demo-release.apk")
-	if err := os.WriteFile(apkPath, []byte("apk"), 0644); err != nil {
-		t.Fatalf("WriteFile: %v", err)
-	}
-
-	cfg := &config.Config{
-		Stores: map[string]map[string]string{
-			"huawei": {"client_id": "x"},
-			"xiaomi": {"email": "x"},
-		},
-	}
-	bundle, err := buildAPKBundle(cfg, []webUploadedFile{{Name: "demo-release.apk", Path: apkPath}})
-	if err != nil {
-		t.Fatalf("buildAPKBundle: %v", err)
-	}
-	defer bundle.Cleanup()
-
-	if bundle.AutoDetected {
-		t.Fatalf("expected manual selection fallback")
-	}
-	if len(bundle.Summary) != 2 {
-		t.Fatalf("summary len = %d, want 2", len(bundle.Summary))
-	}
-	for _, item := range bundle.Summary {
-		if item.Channel != "" {
-			t.Fatalf("channel = %q, want empty for manual selection", item.Channel)
-		}
-	}
-}
-
 func TestBuildAPKBundle_ErrorsForMultipleUnmatchedFiles(t *testing.T) {
 	tmp := t.TempDir()
 	apk1 := filepath.Join(tmp, "demo-release.apk")
@@ -97,6 +68,115 @@ func TestBuildAPKBundle_ErrorsForMultipleUnmatchedFiles(t *testing.T) {
 	})
 	if err == nil {
 		t.Fatalf("expected error for multiple unmatched files")
+	}
+}
+
+func TestBuildAPKBundle_RejectsInvalidSingleAPK(t *testing.T) {
+	tmp := t.TempDir()
+	apkPath := filepath.Join(tmp, "demo.apk")
+	if err := os.WriteFile(apkPath, []byte("not-a-real-apk"), 0644); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+
+	cfg := &config.Config{
+		Stores: map[string]map[string]string{
+			"pgyer": {"api_key": "demo"},
+		},
+	}
+	_, err := buildAPKBundle(cfg, []webUploadedFile{{Name: "demo.apk", Path: apkPath}})
+	if err == nil {
+		t.Fatalf("expected invalid apk error")
+	}
+	if !strings.Contains(err.Error(), "上传的 APK 文件无效") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestSaveUploadedFiles_PreservesSingleAPKBytes(t *testing.T) {
+	tmp := t.TempDir()
+	apkPath := filepath.Join(tmp, "demo.apk")
+	apkBytes := []byte("PK\x03\x04fake-apk-content")
+	if err := os.WriteFile(apkPath, apkBytes, 0644); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+
+	var body bytes.Buffer
+	writer := multipart.NewWriter(&body)
+	part, err := writer.CreateFormFile("archive", filepath.Base(apkPath))
+	if err != nil {
+		t.Fatalf("CreateFormFile: %v", err)
+	}
+	src, err := os.Open(apkPath)
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	defer src.Close()
+	if _, err := io.Copy(part, src); err != nil {
+		t.Fatalf("io.Copy: %v", err)
+	}
+	if err := writer.Close(); err != nil {
+		t.Fatalf("writer.Close: %v", err)
+	}
+
+	req := httptest.NewRequest(http.MethodPost, "/api/upload", &body)
+	req.Header.Set("Content-Type", writer.FormDataContentType())
+	if err := req.ParseMultipartForm(webUploadFormMemory); err != nil {
+		t.Fatalf("ParseMultipartForm: %v", err)
+	}
+
+	files, cleanup, err := saveUploadedFiles(req, "archive")
+	if err != nil {
+		t.Fatalf("saveUploadedFiles: %v", err)
+	}
+	defer cleanup()
+
+	if len(files) != 1 {
+		t.Fatalf("files len = %d, want 1", len(files))
+	}
+	got, err := os.ReadFile(files[0].Path)
+	if err != nil {
+		t.Fatalf("ReadFile saved temp: %v", err)
+	}
+	if !bytes.Equal(got, apkBytes) {
+		t.Fatalf("saved bytes changed: got %q want %q", string(got), string(apkBytes))
+	}
+}
+
+func TestBuildManualSelectionBundle_PreservesSingleAPKBytes(t *testing.T) {
+	tmp := t.TempDir()
+	apkPath := filepath.Join(tmp, "demo.apk")
+	apkBytes := []byte("PK\x03\x04fake-apk-content")
+	if err := os.WriteFile(apkPath, apkBytes, 0644); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+
+	cfg := &config.Config{
+		Stores: map[string]map[string]string{
+			"pgyer": {"api_key": "demo"},
+		},
+	}
+	dir := filepath.Join(tmp, "bundle")
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		t.Fatalf("MkdirAll: %v", err)
+	}
+	bundle, err := buildManualSelectionBundle(dir, func() {}, webUploadedFile{
+		Name: "demo.apk",
+		Path: apkPath,
+	}, cfg)
+	if err != nil {
+		t.Fatalf("buildManualSelectionBundle: %v", err)
+	}
+
+	ref, ok := bundle.Artifacts["pgyer"]
+	if !ok {
+		t.Fatalf("expected pgyer artifact")
+	}
+	got, err := os.ReadFile(ref.Path)
+	if err != nil {
+		t.Fatalf("ReadFile copied apk: %v", err)
+	}
+	if !bytes.Equal(got, apkBytes) {
+		t.Fatalf("copied bytes changed: got %q want %q", string(got), string(apkBytes))
 	}
 }
 
@@ -430,11 +510,15 @@ func TestHandleWebConfigSave_DoesNotPreserveClearedSecretFields(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ReadFile: %v", err)
 	}
-	var out map[string]map[string]string
+	var out map[string]json.RawMessage
 	if err := json.Unmarshal(saved, &out); err != nil {
 		t.Fatalf("Unmarshal saved: %v", err)
 	}
-	if got := out["vivo"]["access_secret"]; got != "" {
+	var vivo map[string]string
+	if err := json.Unmarshal(out["vivo"], &vivo); err != nil {
+		t.Fatalf("Unmarshal vivo: %v", err)
+	}
+	if got := vivo["access_secret"]; got != "" {
 		t.Fatalf("access_secret = %q, want empty", got)
 	}
 }
@@ -712,5 +796,372 @@ func TestHandleWebConfigSave_UploadedFileIsUsedByRuntimeConfig(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(tmp, "config", "huawei.json")); err != nil {
 		t.Fatalf("uploaded file not present for runtime use: %v", err)
+	}
+}
+
+func TestListWebApps_MigratesExistingMainConfig(t *testing.T) {
+	tmp := t.TempDir()
+	oldConfig := flagConfig
+	oldCredsFrom := flagCredsFrom
+	flagConfig = filepath.Join(tmp, "config", "config.json")
+	flagCredsFrom = ""
+	defer func() {
+		flagConfig = oldConfig
+		flagCredsFrom = oldCredsFrom
+	}()
+
+	if err := os.MkdirAll(filepath.Dir(flagConfig), 0755); err != nil {
+		t.Fatalf("MkdirAll: %v", err)
+	}
+	if err := os.WriteFile(flagConfig, []byte(`{"ui":{"default_audit_package":"com.demo.app"},"vivo":{"access_key":"k","access_secret":"s"}}`), 0644); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+
+	items, current, err := listWebApps()
+	if err != nil {
+		t.Fatalf("listWebApps: %v", err)
+	}
+	if current == "" {
+		t.Fatalf("current app should be initialized")
+	}
+	if len(items) != 1 {
+		t.Fatalf("items len = %d, want 1", len(items))
+	}
+	if !items[0].Selected {
+		t.Fatalf("expected migrated app to be selected")
+	}
+	if items[0].Name == "" {
+		t.Fatalf("expected migrated app name")
+	}
+	if _, err := os.Stat(webAppConfigPath(current)); err != nil {
+		t.Fatalf("migrated app config missing: %v", err)
+	}
+}
+
+func TestSelectWebApp_OverridesMainConfig(t *testing.T) {
+	tmp := t.TempDir()
+	oldConfig := flagConfig
+	oldCredsFrom := flagCredsFrom
+	flagConfig = filepath.Join(tmp, "config", "config.json")
+	flagCredsFrom = ""
+	defer func() {
+		flagConfig = oldConfig
+		flagCredsFrom = oldCredsFrom
+	}()
+
+	if err := os.MkdirAll(filepath.Dir(flagConfig), 0755); err != nil {
+		t.Fatalf("MkdirAll: %v", err)
+	}
+	mainDoc := `{"ui":{"app_name":"App One","default_audit_package":"com.one.app"},"vivo":{"access_key":"one","access_secret":"one-secret"}}`
+	if err := os.WriteFile(flagConfig, []byte(mainDoc), 0644); err != nil {
+		t.Fatalf("WriteFile main: %v", err)
+	}
+	if _, _, err := listWebApps(); err != nil {
+		t.Fatalf("listWebApps init: %v", err)
+	}
+
+	app2 := &webConfigDocument{
+		UI: webUIConfig{
+			AppName:             "App Two",
+			DefaultAuditPackage: "com.two.app",
+			ManualURLs:          map[string]string{},
+		},
+		Hooks:         map[string]map[string]string{},
+		Stores:        map[string]map[string]string{"xiaomi": {"email": "two@example.com", "private_key": "key"}},
+		MarketAliases: map[string][]string{},
+	}
+	if err := saveWebEditableConfigAt(webAppConfigPath("app-two"), app2); err != nil {
+		t.Fatalf("saveWebEditableConfigAt: %v", err)
+	}
+
+	item, err := selectWebApp("app-two")
+	if err != nil {
+		t.Fatalf("selectWebApp: %v", err)
+	}
+	if item.Name != "App Two" {
+		t.Fatalf("selected item name = %q, want App Two", item.Name)
+	}
+
+	doc, err := loadWebEditableConfig()
+	if err != nil {
+		t.Fatalf("loadWebEditableConfig: %v", err)
+	}
+	if doc.UI.AppName != "App Two" {
+		t.Fatalf("main config app_name = %q, want App Two", doc.UI.AppName)
+	}
+	if doc.UI.DefaultAuditPackage != "com.two.app" {
+		t.Fatalf("main config package = %q, want com.two.app", doc.UI.DefaultAuditPackage)
+	}
+	if got := doc.Stores["xiaomi"]["email"]; got != "two@example.com" {
+		t.Fatalf("main config xiaomi.email = %q, want two@example.com", got)
+	}
+}
+
+func TestHandleWebConfigSave_ForNonSelectedApp_DoesNotOverrideMainConfig(t *testing.T) {
+	tmp := t.TempDir()
+	oldConfig := flagConfig
+	oldCredsFrom := flagCredsFrom
+	flagConfig = filepath.Join(tmp, "config", "config.json")
+	flagCredsFrom = ""
+	defer func() {
+		flagConfig = oldConfig
+		flagCredsFrom = oldCredsFrom
+	}()
+
+	if err := os.MkdirAll(filepath.Dir(flagConfig), 0755); err != nil {
+		t.Fatalf("MkdirAll: %v", err)
+	}
+	if err := os.WriteFile(flagConfig, []byte(`{"ui":{"app_name":"App One","default_audit_package":"com.one.app"},"vivo":{"access_key":"one","access_secret":"one-secret"}}`), 0644); err != nil {
+		t.Fatalf("WriteFile main: %v", err)
+	}
+	if _, _, err := listWebApps(); err != nil {
+		t.Fatalf("listWebApps init: %v", err)
+	}
+
+	app2 := &webConfigDocument{
+		UI: webUIConfig{
+			AppName:             "App Two",
+			DefaultAuditPackage: "com.two.app",
+			ManualURLs:          map[string]string{},
+		},
+		Hooks:         map[string]map[string]string{},
+		Stores:        map[string]map[string]string{"xiaomi": {"email": "old@example.com", "private_key": "old-key"}},
+		MarketAliases: map[string][]string{},
+	}
+	if err := saveWebEditableConfigAt(webAppConfigPath("app-two"), app2); err != nil {
+		t.Fatalf("saveWebEditableConfigAt: %v", err)
+	}
+
+	payload := webConfigPayload{
+		AppID: "app-two",
+		UI: webUIConfig{
+			AppName:             "App Two",
+			DefaultAuditPackage: "com.two.updated",
+		},
+		Stores: map[string]map[string]string{
+			"xiaomi": {
+				"email":       "new@example.com",
+				"private_key": "new-key",
+			},
+		},
+	}
+	body, err := json.Marshal(payload)
+	if err != nil {
+		t.Fatalf("Marshal payload: %v", err)
+	}
+
+	req := httptest.NewRequest(http.MethodPost, "/api/config/save", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	handleWebConfigSave(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %s", w.Code, w.Body.String())
+	}
+
+	mainDoc, err := loadWebEditableConfig()
+	if err != nil {
+		t.Fatalf("loadWebEditableConfig main: %v", err)
+	}
+	if mainDoc.UI.AppName != "App One" {
+		t.Fatalf("main app_name = %q, want App One", mainDoc.UI.AppName)
+	}
+	if mainDoc.UI.DefaultAuditPackage != "com.one.app" {
+		t.Fatalf("main package = %q, want com.one.app", mainDoc.UI.DefaultAuditPackage)
+	}
+
+	editedDoc, err := loadWebEditableConfigForApp("app-two")
+	if err != nil {
+		t.Fatalf("loadWebEditableConfigForApp: %v", err)
+	}
+	if editedDoc.UI.DefaultAuditPackage != "com.two.updated" {
+		t.Fatalf("edited package = %q, want com.two.updated", editedDoc.UI.DefaultAuditPackage)
+	}
+	if got := editedDoc.Stores["xiaomi"]["email"]; got != "new@example.com" {
+		t.Fatalf("edited xiaomi.email = %q, want new@example.com", got)
+	}
+}
+
+func TestHandleWebHistory_UsesSelectedAppHistory(t *testing.T) {
+	tmp := t.TempDir()
+	oldConfig := flagConfig
+	oldCredsFrom := flagCredsFrom
+	flagConfig = filepath.Join(tmp, "config", "config.json")
+	flagCredsFrom = ""
+	defer func() {
+		flagConfig = oldConfig
+		flagCredsFrom = oldCredsFrom
+	}()
+
+	if err := os.MkdirAll(filepath.Dir(flagConfig), 0755); err != nil {
+		t.Fatalf("MkdirAll config: %v", err)
+	}
+	if err := os.WriteFile(flagConfig, []byte(`{"ui":{"app_name":"App One","default_audit_package":"com.one.app"},"vivo":{"access_key":"one","access_secret":"one-secret"}}`), 0644); err != nil {
+		t.Fatalf("WriteFile config: %v", err)
+	}
+	if _, _, err := listWebApps(); err != nil {
+		t.Fatalf("listWebApps init: %v", err)
+	}
+
+	home := filepath.Join(tmp, "home")
+	if err := os.MkdirAll(home, 0755); err != nil {
+		t.Fatalf("MkdirAll home: %v", err)
+	}
+	oldHome := os.Getenv("HOME")
+	if err := os.Setenv("HOME", home); err != nil {
+		t.Fatalf("Setenv HOME: %v", err)
+	}
+	defer func() {
+		_ = os.Setenv("HOME", oldHome)
+	}()
+
+	if err := history.AppendRecord(webAppHistoryPath("app-one"), history.Record{
+		Timestamp: "2026-06-24T10:00:00Z",
+		APK: &apk.Info{
+			PackageName: "com.one.app",
+			VersionName: "1.0.0",
+			VersionCode: 1,
+			AppName:     "App One",
+		},
+	}); err != nil {
+		t.Fatalf("AppendRecord one: %v", err)
+	}
+	app2 := &webConfigDocument{
+		UI: webUIConfig{
+			AppName:             "App Two",
+			DefaultAuditPackage: "com.two.app",
+			ManualURLs:          map[string]string{},
+		},
+		Hooks:         map[string]map[string]string{},
+		Stores:        map[string]map[string]string{},
+		MarketAliases: map[string][]string{},
+	}
+	if err := saveWebEditableConfigAt(webAppConfigPath("app-two"), app2); err != nil {
+		t.Fatalf("saveWebEditableConfigAt: %v", err)
+	}
+	if err := history.AppendRecord(webAppHistoryPath("app-two"), history.Record{
+		Timestamp: "2026-06-24T11:00:00Z",
+		APK: &apk.Info{
+			PackageName: "com.two.app",
+			VersionName: "2.0.0",
+			VersionCode: 2,
+			AppName:     "App Two",
+		},
+	}); err != nil {
+		t.Fatalf("AppendRecord two: %v", err)
+	}
+	if _, err := selectWebApp("app-one"); err != nil {
+		t.Fatalf("selectWebApp app-one: %v", err)
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/api/history", nil)
+	w := httptest.NewRecorder()
+	handleWebHistory(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %s", w.Code, w.Body.String())
+	}
+
+	var resp struct {
+		Records []webHistoryItem `json:"records"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("Unmarshal response: %v", err)
+	}
+	if len(resp.Records) != 1 {
+		t.Fatalf("records len = %d, want 1", len(resp.Records))
+	}
+	if resp.Records[0].PackageName != "com.one.app" {
+		t.Fatalf("record package = %q, want com.one.app", resp.Records[0].PackageName)
+	}
+
+	if _, err := selectWebApp("app-two"); err != nil {
+		t.Fatalf("selectWebApp app-two: %v", err)
+	}
+
+	req = httptest.NewRequest(http.MethodGet, "/api/history", nil)
+	w = httptest.NewRecorder()
+	handleWebHistory(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %s", w.Code, w.Body.String())
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("Unmarshal response after switch: %v", err)
+	}
+	if len(resp.Records) != 1 {
+		t.Fatalf("records len after switch = %d, want 1", len(resp.Records))
+	}
+	if resp.Records[0].PackageName != "com.two.app" {
+		t.Fatalf("record package after switch = %q, want com.two.app", resp.Records[0].PackageName)
+	}
+}
+
+func TestHandleWebHistoryDelete_SyncsSelectedAppHistory(t *testing.T) {
+	tmp := t.TempDir()
+	oldConfig := flagConfig
+	oldCredsFrom := flagCredsFrom
+	flagConfig = filepath.Join(tmp, "config", "config.json")
+	flagCredsFrom = ""
+	defer func() {
+		flagConfig = oldConfig
+		flagCredsFrom = oldCredsFrom
+	}()
+
+	if err := os.MkdirAll(filepath.Dir(flagConfig), 0755); err != nil {
+		t.Fatalf("MkdirAll config: %v", err)
+	}
+	if err := os.WriteFile(flagConfig, []byte(`{"ui":{"app_name":"App One","default_audit_package":"com.one.app"}}`), 0644); err != nil {
+		t.Fatalf("WriteFile config: %v", err)
+	}
+	if _, _, err := listWebApps(); err != nil {
+		t.Fatalf("listWebApps init: %v", err)
+	}
+
+	if err := history.AppendRecord(webAppHistoryPath("app-one"), history.Record{
+		Timestamp: "2026-06-24T10:00:00Z",
+		APK: &apk.Info{
+			PackageName: "com.one.app",
+			VersionName: "1.0.0",
+		},
+	}); err != nil {
+		t.Fatalf("AppendRecord app-one #1: %v", err)
+	}
+	if err := history.AppendRecord(webAppHistoryPath("app-one"), history.Record{
+		Timestamp: "2026-06-24T11:00:00Z",
+		APK: &apk.Info{
+			PackageName: "com.one.app",
+			VersionName: "1.0.1",
+		},
+	}); err != nil {
+		t.Fatalf("AppendRecord app-one #2: %v", err)
+	}
+	if _, err := selectWebApp("app-one"); err != nil {
+		t.Fatalf("selectWebApp app-one: %v", err)
+	}
+
+	body := bytes.NewReader([]byte(`{"timestamp":"2026-06-24T10:00:00Z"}`))
+	req := httptest.NewRequest(http.MethodPost, "/api/history/delete", body)
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	handleWebHistoryDelete(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %s", w.Code, w.Body.String())
+	}
+
+	mainRecords, err := history.Read(mainWebHistoryPath())
+	if err != nil {
+		t.Fatalf("Read main history: %v", err)
+	}
+	if len(mainRecords) != 1 || mainRecords[0].Timestamp != "2026-06-24T11:00:00Z" {
+		t.Fatalf("main records = %#v, want one remaining record", mainRecords)
+	}
+
+	appRecords, err := history.Read(webAppHistoryPath("app-one"))
+	if err != nil {
+		t.Fatalf("Read app history: %v", err)
+	}
+	if len(appRecords) != 1 || appRecords[0].Timestamp != "2026-06-24T11:00:00Z" {
+		t.Fatalf("app records = %#v, want one remaining record", appRecords)
 	}
 }
